@@ -1,0 +1,64 @@
+# Kusto Query Templates for maf-agents
+#
+# Templates use Python string formatting with {parameter} syntax.
+# Parameters are substituted at runtime via KustoClientWrapper.load_query_template()
+
+# Schema Discovery Queries
+find_existing_detectors: |
+  // Find existing detectors for a specific ETW provider
+  DetectorMetadata
+  | where ProviderGuid == '{provider_guid}'
+  | project DetectorName, RuleId, CreatedDate, Status
+  | order by CreatedDate desc
+
+get_etw_schema: |
+  // Retrieve ETW schema definition for a provider
+  ETWSchemaTable
+  | where ProviderGuid == '{provider_guid}'
+  | project FieldName, DataType, Description
+  | order by FieldName asc
+
+# Results Analysis Queries
+fetch_detector_results: |
+  // Fetch recent detector results for analysis
+  DetectorResults
+  | where DetectorName == '{detector_name}'
+  | where Timestamp >= datetime('{start_time}')
+  | summarize
+      EventCount = count(),
+      ErrorCount = countif(IsError == true),
+      UniqueHosts = dcount(HostName)
+    by bin(Timestamp, 5m)
+  | order by Timestamp desc
+  | take 100
+
+get_detector_metrics: |
+  // Get performance metrics for a deployed detector
+  DetectorMetrics
+  | where DetectorName == '{detector_name}'
+  | where Timestamp >= ago({time_range_hours}h)
+  | summarize
+      TotalEvents = sum(EventCount),
+      AvgExecutionTime = avg(ExecutionTimeMs),
+      ErrorRate = round(100.0 * sum(ErrorCount) / sum(EventCount), 2)
+
+# Pattern Analysis Queries (for code generation)
+find_recent_detector_prs: |
+  // Find recent detector-related PRs for pattern learning
+  PRHistory
+  | where Title contains "detector" or Title contains "ETW"
+  | where Status == "Merged"
+  | where MergedDate >= ago({days_back}d)
+  | project PRId, Title, Description, MergedDate, FilesChanged
+  | order by MergedDate desc
+  | take {limit}
+
+find_promotion_prs: |
+  // Find production promotion PRs for pattern learning
+  PRHistory
+  | where Title contains "production" or Title contains "customer-facing" or Title contains "promote"
+  | where Status == "Merged"
+  | where MergedDate >= ago({days_back}d)
+  | project PRId, Title, Description, MergedDate, FilesChanged
+  | order by MergedDate desc
+  | take {limit}
