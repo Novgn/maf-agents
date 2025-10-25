@@ -834,14 +834,14 @@ Do the results look acceptable?"""
 @executor(id="results_analysis")
 async def results_analysis_executor(
     workflow_data: dict[str, Any],
-    ctx: WorkflowContext[Never, dict[str, Any]]
+    ctx: WorkflowContext[dict[str, Any]]
 ) -> None:
     """
     Step 7: Results Analysis
     Queries Kusto for detector results, analyzes effectiveness, and prompts user for confirmation.
     Uses MAF ChatAgent approval pattern for human-in-the-loop confirmation.
     """
-    print("\n✓ [7/7] Results Analysis")
+    print("\n✓ [7/8] Results Analysis")
     print("    Initializing Results Analysis...")
 
     # Fetch and analyze results from Kusto
@@ -861,7 +861,7 @@ async def results_analysis_executor(
         workflow_data["results_acceptable"] = False
         workflow_data["results_confirmed"] = False
         print("\n    ⚠️  Skipping user confirmation - deployment was not successful")
-        await ctx.yield_output(workflow_data)
+        await ctx.send_message(workflow_data)
         return
 
     # Handle user confirmation using MAF pattern
@@ -873,11 +873,264 @@ async def results_analysis_executor(
     workflow_data["results_confirmed"] = confirmed
 
     if confirmed:
-        print("\n    ✅ Results confirmed by user - workflow complete")
+        print("\n    ✅ Results confirmed by user - proceeding to production promotion")
     else:
         print("\n    ⚠️  Results not confirmed - user should investigate")
 
-    # Final output - yield the complete workflow data
+    # Send message to next executor
+    await ctx.send_message(workflow_data)
+
+
+# ==================================
+# Production Promotion Components
+# ==================================
+
+
+def _generate_promotion_changes(
+    workflow_data: dict[str, Any],
+    patterns: dict[str, Any]
+) -> dict[str, str]:
+    """
+    Generate promotion configuration changes based on patterns.
+
+    Args:
+        workflow_data: Workflow state with detector info
+        patterns: Promotion patterns from PromotionPatternAnalyzer
+
+    Returns:
+        Dictionary mapping file paths to file contents
+    """
+    rule_id = workflow_data.get("rule_id", "unknown")
+    detector_name = f"detector_{rule_id}"
+
+    changes = {}
+
+    # Generate feature flag configuration
+    # Look for feature flag patterns in promotion history
+    production_indicators = patterns.get("production_indicators", [])
+    flag_indicators = [i for i in production_indicators if i.get("type") == "feature_flags"]
+
+    if flag_indicators and flag_indicators[0].get("examples"):
+        # Use pattern from historical PRs
+        flag_file = flag_indicators[0]["examples"][0]
+    else:
+        # Default location
+        flag_file = "config/feature_flags.json"
+
+    # Generate feature flag content
+    import json
+    feature_flags = {
+        "features": {
+            detector_name: {
+                "enabled": True,
+                "customer_facing": True,
+                "rollout_percentage": 100,
+                "description": f"Enable {rule_id} detector for production use"
+            }
+        }
+    }
+    changes[flag_file] = json.dumps(feature_flags, indent=2)
+
+    # Generate README update documenting the promotion
+    readme_file = "docs/DETECTOR_PROMOTION.md"
+    readme_content = f"""# Detector Promotion: {rule_id}
+
+## Overview
+This PR promotes the {detector_name} detector to customer-facing production status.
+
+## Detector Information
+- **Rule ID**: {rule_id}
+- **Detector Name**: {detector_name}
+- **Provider GUID**: {workflow_data.get('provider_guid', 'N/A')}
+
+## Results Summary
+{workflow_data.get('results_summary', 'No results summary available')}
+
+## Metrics
+- **Events Detected**: {workflow_data.get('events_detected', 0)}
+- **Error Rate**: {workflow_data.get('error_rate', 0.0)}%
+
+## Changes
+- Enabled feature flag for {detector_name}
+- Updated configuration for customer-facing deployment
+
+## Testing
+Detector has been validated with results analysis in pre-production environment.
+"""
+    changes[readme_file] = readme_content
+
+    return changes
+
+
+@executor(id="production_promotion")
+async def production_promotion_executor(
+    workflow_data: dict[str, Any],
+    ctx: WorkflowContext[Never, dict[str, Any]]
+) -> None:
+    """
+    Step 8: Production Promotion
+    Creates a PR to promote the detector to customer-facing production status.
+    Uses PromotionPatternAnalyzer to follow team conventions.
+    """
+    print("\n✓ [8/8] Production Promotion")
+    print("    Analyzing promotion patterns...")
+
+    # Check if results were confirmed
+    if not workflow_data.get("results_confirmed", False):
+        print("\n    ⚠️  Results not confirmed - skipping production promotion")
+        workflow_data["promotion_status"] = "skipped_no_confirmation"
+        workflow_data["current_step"] = "production_promotion_skipped"
+        await ctx.yield_output(workflow_data)
+        return
+
+    config = get_config()
+
+    # Check Azure DevOps configuration
+    if not config.azure.azure_devops_org or not config.azure.azure_devops_project or not config.azure.azure_devops_repo:
+        print("    ⚠️  Azure DevOps not configured - skipping production promotion")
+        workflow_data["promotion_status"] = "skipped_no_config"
+        workflow_data["current_step"] = "production_promotion_skipped"
+        await ctx.yield_output(workflow_data)
+        return
+
+    try:
+        # Initialize Azure DevOps connection
+        auth_mgr = get_auth_manager(use_default_credential=True)
+        connection = auth_mgr.get_azure_devops_connection(config.azure.azure_devops_org)
+
+        # Analyze promotion patterns
+        from agents.promotion_pattern_analyzer import create_promotion_pattern_analyzer
+
+        print("    Fetching historical promotion PRs...")
+        analyzer = create_promotion_pattern_analyzer(
+            connection=connection,
+            project=config.azure.azure_devops_project,
+            repository=config.azure.azure_devops_repo
+        )
+
+        promotion_prs = analyzer.fetch_promotion_prs(limit=10)
+        patterns = analyzer.extract_promotion_patterns(promotion_prs)
+
+        print(f"    Analyzed {patterns['pr_count']} promotion PRs")
+
+        # Generate promotion changes
+        print("    Generating promotion configuration changes...")
+        changes = _generate_promotion_changes(workflow_data, patterns)
+
+        # Create branch
+        rule_id = workflow_data.get("rule_id", "unknown")
+        detector_name = f"detector_{rule_id}"
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        branch_name = f"detector/production-{rule_id}-{timestamp}"
+
+        print(f"    Creating branch: {branch_name}")
+
+        from shared.repos_utils import create_branch, commit_and_push_files, create_pull_request
+
+        # Create branch from main
+        create_branch(
+            connection=connection,
+            project=config.azure.azure_devops_project,
+            repository_id=config.azure.azure_devops_repo,
+            branch_name=branch_name,
+            source_branch="main"
+        )
+
+        # Commit changes
+        commit_message = f"Promote {detector_name} to production\n\n" \
+                        f"Enable {rule_id} detector for customer-facing use.\n" \
+                        f"Validated with {workflow_data.get('events_detected', 0)} events detected."
+
+        print("    Committing promotion changes...")
+        commit_and_push_files(
+            connection=connection,
+            project=config.azure.azure_devops_project,
+            repository_id=config.azure.azure_devops_repo,
+            branch_name=branch_name,
+            file_changes=changes,
+            commit_message=commit_message
+        )
+
+        # Determine PR title based on patterns
+        title_patterns = patterns.get("title_patterns", [])
+        title_prefix = "Promote"
+        for pattern in title_patterns:
+            if pattern.get("type") == "title_prefix" and pattern.get("confidence", 0) > 0.3:
+                title_prefix = pattern["value"]
+                break
+
+        pr_title = f"{title_prefix}: Enable {detector_name} for production"
+
+        # Generate PR description following patterns
+        description_sections = []
+        description_sections.append("## Summary")
+        description_sections.append(f"Promote {detector_name} detector to customer-facing production status.")
+        description_sections.append("")
+        description_sections.append("## Detector Information")
+        description_sections.append(f"- **Rule ID**: {rule_id}")
+        description_sections.append(f"- **Detector Name**: {detector_name}")
+        description_sections.append(f"- **Provider GUID**: {workflow_data.get('provider_guid', 'N/A')}")
+        description_sections.append("")
+        description_sections.append("## Validation Results")
+        description_sections.append(f"- **Events Detected**: {workflow_data.get('events_detected', 0)}")
+        description_sections.append(f"- **Error Rate**: {workflow_data.get('error_rate', 0.0)}%")
+        description_sections.append(f"- **Results Summary**: {workflow_data.get('results_summary', 'N/A')}")
+        description_sections.append("")
+        description_sections.append("## Changes")
+        for file_path in changes.keys():
+            description_sections.append(f"- `{file_path}`")
+        description_sections.append("")
+        description_sections.append("## Testing")
+        description_sections.append("Detector has been validated in pre-production environment with results analysis.")
+
+        pr_description = "\n".join(description_sections)
+
+        # Create PR
+        print("    Creating promotion PR...")
+        pr_response = create_pull_request(
+            connection=connection,
+            project=config.azure.azure_devops_project,
+            repository_id=config.azure.azure_devops_repo,
+            source_branch=branch_name,
+            target_branch="main",
+            title=pr_title,
+            description=pr_description
+        )
+
+        # Store PR details
+        promotion_pr_id = pr_response["pullRequestId"]
+        promotion_pr_url = pr_response.get("url", f"https://dev.azure.com/{config.azure.azure_devops_org}/{config.azure.azure_devops_project}/_git/{config.azure.azure_devops_repo}/pullrequest/{promotion_pr_id}")
+
+        workflow_data["promotion_pr_id"] = promotion_pr_id
+        workflow_data["promotion_pr_url"] = promotion_pr_url
+        workflow_data["promotion_branch_name"] = branch_name
+        workflow_data["promotion_status"] = "completed"
+        workflow_data["promotion_patterns"] = patterns
+        workflow_data["current_step"] = "production_promotion_complete"
+
+        # Present results
+        print("\n" + "=" * 70)
+        print("\n   ✅ PRODUCTION PROMOTION PR CREATED")
+        print("   " + "=" * 68)
+        print(f"\n   PR URL: {promotion_pr_url}")
+        print(f"   PR ID: {promotion_pr_id}")
+        print(f"   Branch: {branch_name}")
+        print(f"   Title: {pr_title}")
+        print(f"\n   Files Changed: {len(changes)}")
+        for file_path in changes.keys():
+            print(f"     - {file_path}")
+        print("\n" + "=" * 70)
+        print("\n   🎉 Workflow Complete! Detector ready for production deployment.")
+        print()
+
+    except Exception as e:
+        print(f"\n    ⚠️  Error creating promotion PR: {e}")
+        workflow_data["promotion_status"] = "failed"
+        workflow_data["promotion_error"] = str(e)
+        workflow_data["current_step"] = "production_promotion_failed"
+
+    # Final output - workflow complete
     await ctx.yield_output(workflow_data)
 
 
@@ -885,7 +1138,7 @@ async def build_detector_workflow():
     """
     Build the detector development workflow using MAF WorkflowBuilder.
 
-    This creates a sequential pipeline of 7 executors with checkpointing enabled.
+    This creates a sequential pipeline of 8 executors with checkpointing enabled.
     """
     workflow = (
         WorkflowBuilder()
@@ -896,6 +1149,7 @@ async def build_detector_workflow():
         .add_edge(pr_creation_executor, approval_gate_executor)
         .add_edge(approval_gate_executor, deployment_verification_executor)
         .add_edge(deployment_verification_executor, results_analysis_executor)
+        .add_edge(results_analysis_executor, production_promotion_executor)
         .with_checkpointing(checkpoint_storage)  # Enable MAF checkpointing
         .build()
     )
