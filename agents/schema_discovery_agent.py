@@ -5,8 +5,7 @@ This module implements an agent that queries Kusto to discover existing detector
 and retrieve ETW schema definitions for a given provider GUID.
 """
 
-from typing import Annotated, Optional, List, Dict, Any
-from pydantic import Field
+from typing import Optional, List, Dict, Any
 
 from agent_framework import ChatAgent
 from agent_framework.openai import OpenAIChatClient
@@ -14,101 +13,6 @@ from agent_framework.azure import AzureOpenAIChatClient
 
 from shared.models import KustoSchemaData, KustoSchemaField
 from shared.kusto_client import KustoClientWrapper
-
-
-# Query templates for Kusto
-EXISTING_DETECTORS_QUERY_TEMPLATE = """
-// Find existing detectors for the given provider GUID
-DetectorTable
-| where ProviderGuid == '{provider_guid}'
-| project DetectorName, RuleId, CreatedDate, Author
-| order by CreatedDate desc
-"""
-
-ETW_SCHEMA_QUERY_TEMPLATE = """
-// Retrieve ETW schema for the given provider GUID
-ETWSchemaTable
-| where ProviderGuid == '{provider_guid}'
-| project FieldName, DataType, Description
-| order by FieldName asc
-"""
-
-
-async def query_existing_detectors(
-    provider_guid: Annotated[str, Field(description="The ETW provider GUID")],
-    kusto_client: KustoClientWrapper
-) -> str:
-    """
-    Query Kusto for existing detectors matching the provider GUID.
-
-    This tool queries the Kusto cluster to find all detectors that have been
-    created for the given ETW provider GUID.
-
-    Args:
-        provider_guid: The ETW provider GUID to search for
-        kusto_client: The Kusto client wrapper instance
-
-    Returns:
-        Summary of existing detectors found
-    """
-    try:
-        # Build query from template
-        query = EXISTING_DETECTORS_QUERY_TEMPLATE.format(provider_guid=provider_guid)
-
-        # Execute query
-        results = kusto_client.execute_query(query, timeout_seconds=30)
-
-        if not results:
-            return f"No existing detectors found for provider GUID {provider_guid}."
-
-        # Parse results
-        detector_names = [row.get("DetectorName", "Unknown") for row in results]
-
-        summary = f"Found {len(detector_names)} existing detector(s): {', '.join(detector_names)}"
-        return summary
-
-    except Exception as e:
-        return f"Error querying existing detectors: {str(e)}"
-
-
-async def query_etw_schema(
-    provider_guid: Annotated[str, Field(description="The ETW provider GUID")],
-    kusto_client: KustoClientWrapper
-) -> str:
-    """
-    Query Kusto for ETW schema definition for the provider GUID.
-
-    This tool queries the Kusto cluster to retrieve the ETW schema fields
-    for the given provider GUID.
-
-    Args:
-        provider_guid: The ETW provider GUID
-        kusto_client: The Kusto client wrapper instance
-
-    Returns:
-        Summary of schema fields discovered
-    """
-    try:
-        # Build query from template
-        query = ETW_SCHEMA_QUERY_TEMPLATE.format(provider_guid=provider_guid)
-
-        # Execute query
-        results = kusto_client.execute_query(query, timeout_seconds=30)
-
-        if not results:
-            return f"No schema definition found for provider GUID {provider_guid}."
-
-        # Parse results
-        field_names = [row.get("FieldName", "Unknown") for row in results]
-
-        summary = f"Schema contains {len(field_names)} field(s): {', '.join(field_names[:5])}"
-        if len(field_names) > 5:
-            summary += f" and {len(field_names) - 5} more"
-
-        return summary
-
-    except Exception as e:
-        return f"Error querying ETW schema: {str(e)}"
 
 
 class SchemaDiscoveryAgent:
@@ -190,8 +94,11 @@ Let me query Kusto to find existing detectors and the schema definition."""
         print(f"\n🤖 Schema Discovery Agent: {response}\n")
 
         # Query for existing detectors
-        detectors_query = EXISTING_DETECTORS_QUERY_TEMPLATE.format(provider_guid=provider_guid)
         try:
+            detectors_query = self.kusto_client.load_query_template(
+                "find_existing_detectors",
+                {"provider_guid": provider_guid}
+            )
             detector_results = self.kusto_client.execute_query(detectors_query, timeout_seconds=30)
             self.existing_detectors = detector_results
             existing_detector_names = [row.get("DetectorName", "Unknown") for row in detector_results]
@@ -210,8 +117,11 @@ Let me query Kusto to find existing detectors and the schema definition."""
             detectors_summary = f"Error querying existing detectors: {str(e)}"
 
         # Query for ETW schema
-        schema_query = ETW_SCHEMA_QUERY_TEMPLATE.format(provider_guid=provider_guid)
         try:
+            schema_query = self.kusto_client.load_query_template(
+                "get_etw_schema",
+                {"provider_guid": provider_guid}
+            )
             schema_results = self.kusto_client.execute_query(schema_query, timeout_seconds=30)
             self.schema_fields = [
                 KustoSchemaField(

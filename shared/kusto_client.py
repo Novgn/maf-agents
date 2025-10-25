@@ -7,6 +7,8 @@ with error handling, retry logic, and timeout enforcement.
 
 import time
 from typing import Optional, Dict, Any, List
+from pathlib import Path
+import yaml
 import structlog
 from azure.kusto.data import KustoClient, KustoConnectionStringBuilder
 from azure.kusto.data.exceptions import KustoServiceError
@@ -19,6 +21,10 @@ logger = structlog.get_logger(__name__)
 
 class KustoClientWrapper:
     """Wrapper for Azure Kusto client with error handling and retry logic."""
+
+    # Class-level cache for query templates
+    _query_templates: Optional[Dict[str, str]] = None
+    _templates_path = Path(__file__).parent.parent / "config" / "kusto_queries.yaml"
 
     def __init__(
         self,
@@ -48,6 +54,32 @@ class KustoClientWrapper:
 
         self.logger = logger.bind(cluster=cluster_url, database=database)
         self.logger.info("Initialized Kusto client wrapper")
+
+    @classmethod
+    def _load_query_templates(cls) -> Dict[str, str]:
+        """
+        Load query templates from YAML file (cached).
+
+        Returns:
+            Dictionary of template_name -> query_string
+
+        Raises:
+            FileNotFoundError: If templates file doesn't exist
+            yaml.YAMLError: If templates file is invalid YAML
+        """
+        if cls._query_templates is None:
+            if not cls._templates_path.exists():
+                raise FileNotFoundError(
+                    f"Query templates file not found: {cls._templates_path}"
+                )
+
+            with open(cls._templates_path, "r") as f:
+                cls._query_templates = yaml.safe_load(f)
+
+            if not isinstance(cls._query_templates, dict):
+                raise ValueError("Query templates file must contain a dictionary")
+
+        return cls._query_templates
 
     @retry(
         stop=stop_after_attempt(3),
@@ -119,29 +151,61 @@ class KustoClientWrapper:
             )
             raise
 
-    def load_query_template(self, template: str, params: Dict[str, Any]) -> str:
+    def load_query_template(self, template_name: str, params: Dict[str, Any]) -> str:
         """
-        Replace placeholders in query template with actual values.
+        Load a query template by name and replace placeholders with actual values.
 
         Args:
-            template: Query template string with {placeholder} syntax
+            template_name: Name of the template in kusto_queries.yaml
             params: Dictionary of parameter values
 
         Returns:
             Query string with placeholders replaced
 
+        Raises:
+            KeyError: If template name not found
+            ValueError: If required parameter is missing
+
         Example:
-            >>> template = "MyTable | where ProviderGuid == '{provider_guid}'"
             >>> params = {"provider_guid": "12345678-1234-1234-1234-123456789012"}
-            >>> query = client.load_query_template(template, params)
+            >>> query = client.load_query_template("get_etw_schema", params)
         """
         try:
+            # Load templates from YAML file
+            templates = self._load_query_templates()
+
+            # Get the template by name
+            if template_name not in templates:
+                available = ", ".join(templates.keys())
+                raise KeyError(
+                    f"Query template '{template_name}' not found. "
+                    f"Available templates: {available}"
+                )
+
+            template = templates[template_name]
+
+            # Substitute parameters
             query = template.format(**params)
-            self.logger.debug("Loaded query template", param_count=len(params))
+
+            self.logger.debug(
+                "Loaded query template",
+                template_name=template_name,
+                param_count=len(params)
+            )
+
             return query
+
         except KeyError as e:
-            self.logger.error("Missing parameter in query template", missing_param=str(e))
-            raise ValueError(f"Missing required parameter: {e}")
+            if template_name in str(e):
+                # Template not found error - already handled above
+                raise
+            # Missing parameter error
+            self.logger.error(
+                "Missing parameter in query template",
+                template_name=template_name,
+                missing_param=str(e)
+            )
+            raise ValueError(f"Missing required parameter: {e}") from e
 
 
 def create_kusto_client(

@@ -315,7 +315,7 @@ class TestKustoClientWrapperQueryTemplates:
     """Tests for query template functionality."""
 
     def test_load_query_template_success(self):
-        """Test loading query template with parameters."""
+        """Test loading query template from YAML with parameters."""
         mock_auth_mgr = Mock(spec=AuthenticationManager)
         mock_auth_mgr.get_kusto_client.return_value = Mock()
         wrapper = KustoClientWrapper(
@@ -324,16 +324,40 @@ class TestKustoClientWrapperQueryTemplates:
             auth_manager=mock_auth_mgr,
         )
 
-        template = "MyTable | where ProviderGuid == '{provider_guid}' | take {limit}"
+        template_name = "find_existing_detectors"
         params = {
             "provider_guid": "12345678-1234-1234-1234-123456789012",
-            "limit": 100,
         }
 
-        result = wrapper.load_query_template(template, params)
+        result = wrapper.load_query_template(template_name, params)
 
-        expected = "MyTable | where ProviderGuid == '12345678-1234-1234-1234-123456789012' | take 100"
-        assert result == expected
+        # Verify the query contains the substituted GUID
+        assert "12345678-1234-1234-1234-123456789012" in result
+        assert "DetectorTable" in result or "DetectorMetadata" in result
+        assert "ProviderGuid" in result
+
+    def test_load_query_template_get_etw_schema(self):
+        """Test loading ETW schema template from YAML."""
+        mock_auth_mgr = Mock(spec=AuthenticationManager)
+        mock_auth_mgr.get_kusto_client.return_value = Mock()
+        wrapper = KustoClientWrapper(
+            cluster_url="https://test.kusto.windows.net",
+            database="test-db",
+            auth_manager=mock_auth_mgr,
+        )
+
+        template_name = "get_etw_schema"
+        params = {
+            "provider_guid": "ABCDEF12-3456-7890-ABCD-EF1234567890",
+        }
+
+        result = wrapper.load_query_template(template_name, params)
+
+        # Verify the query contains the substituted GUID
+        assert "ABCDEF12-3456-7890-ABCD-EF1234567890" in result
+        assert "ETWSchemaTable" in result
+        assert "FieldName" in result
+        assert "DataType" in result
 
     def test_load_query_template_missing_parameter(self):
         """Test loading query template with missing parameter."""
@@ -345,14 +369,14 @@ class TestKustoClientWrapperQueryTemplates:
             auth_manager=mock_auth_mgr,
         )
 
-        template = "MyTable | where ProviderGuid == '{provider_guid}'"
+        template_name = "find_existing_detectors"
         params = {}  # Missing provider_guid
 
         with pytest.raises(ValueError, match="Missing required parameter"):
-            wrapper.load_query_template(template, params)
+            wrapper.load_query_template(template_name, params)
 
-    def test_load_query_template_partial_parameters(self):
-        """Test loading query template with partial parameters."""
+    def test_load_query_template_nonexistent_template(self):
+        """Test loading a template that doesn't exist."""
         mock_auth_mgr = Mock(spec=AuthenticationManager)
         mock_auth_mgr.get_kusto_client.return_value = Mock()
         wrapper = KustoClientWrapper(
@@ -361,14 +385,40 @@ class TestKustoClientWrapperQueryTemplates:
             auth_manager=mock_auth_mgr,
         )
 
-        template = "MyTable | where ProviderGuid == '{provider_guid}' | take {limit}"
-        params = {"provider_guid": "12345678-1234-1234-1234-123456789012"}  # Missing limit
+        template_name = "nonexistent_template"
+        params = {"some_param": "value"}
 
-        with pytest.raises(ValueError, match="Missing required parameter"):
-            wrapper.load_query_template(template, params)
+        with pytest.raises(KeyError, match="Query template 'nonexistent_template' not found"):
+            wrapper.load_query_template(template_name, params)
 
-    def test_load_query_template_no_placeholders(self):
-        """Test loading query template with no placeholders."""
+    def test_load_query_templates_caching(self):
+        """Test that query templates are cached after first load."""
+        mock_auth_mgr = Mock(spec=AuthenticationManager)
+        mock_auth_mgr.get_kusto_client.return_value = Mock()
+        wrapper1 = KustoClientWrapper(
+            cluster_url="https://test.kusto.windows.net",
+            database="test-db",
+            auth_manager=mock_auth_mgr,
+        )
+
+        wrapper2 = KustoClientWrapper(
+            cluster_url="https://test.kusto.windows.net",
+            database="test-db",
+            auth_manager=mock_auth_mgr,
+        )
+
+        # Load template from first wrapper
+        _ = wrapper1.load_query_template("find_existing_detectors", {"provider_guid": "test"})
+
+        # Templates should be cached at class level
+        assert KustoClientWrapper._query_templates is not None
+
+        # Second wrapper should use cached templates
+        result = wrapper2.load_query_template("get_etw_schema", {"provider_guid": "test"})
+        assert "test" in result
+
+    def test_load_query_template_fetch_detector_results(self):
+        """Test loading fetch_detector_results template with all parameters."""
         mock_auth_mgr = Mock(spec=AuthenticationManager)
         mock_auth_mgr.get_kusto_client.return_value = Mock()
         wrapper = KustoClientWrapper(
@@ -377,12 +427,18 @@ class TestKustoClientWrapperQueryTemplates:
             auth_manager=mock_auth_mgr,
         )
 
-        template = "MyTable | take 10"
-        params = {}
+        template_name = "fetch_detector_results"
+        params = {
+            "detector_name": "TestDetector",
+            "start_time": "2024-01-01T00:00:00Z",
+        }
 
-        result = wrapper.load_query_template(template, params)
+        result = wrapper.load_query_template(template_name, params)
 
-        assert result == "MyTable | take 10"
+        # Verify the query contains the substituted parameters
+        assert "TestDetector" in result
+        assert "2024-01-01T00:00:00Z" in result
+        assert "DetectorResults" in result
 
 
 class TestCreateKustoClient:

@@ -128,6 +128,51 @@ AZURE_STORAGE_CONNECTION_STRING={connection-string}
 CHECKPOINT_TABLE_NAME=workflowcheckpoints
 ```
 
+### Kusto Query Templates
+
+Kusto queries are stored as templates in `config/kusto_queries.yaml` for easy modification without code changes.
+
+#### Available Templates
+
+- `find_existing_detectors` - Find detectors for a provider GUID
+- `get_etw_schema` - Retrieve ETW schema fields
+- `fetch_detector_results` - Fetch detector results for analysis
+- `get_detector_stats` - Get detector execution statistics
+- `find_similar_detectors` - Find detectors with similar providers
+
+#### Using Templates
+
+```python
+from shared.kusto_client import create_kusto_client
+
+# Create client
+kusto_client = create_kusto_client(cluster_url, database, auth_manager)
+
+# Load and execute template
+query = kusto_client.load_query_template(
+    "get_etw_schema",
+    {"provider_guid": "12345678-1234-1234-1234-123456789012"}
+)
+results = kusto_client.execute_query(query)
+```
+
+#### Adding New Templates
+
+1. Edit `config/kusto_queries.yaml`
+2. Add your template with descriptive name:
+
+```yaml
+my_new_query: |
+  // Query description
+  MyTable
+  | where Column == '{parameter}'
+  | project Field1, Field2
+```
+
+3. Use placeholders with `{parameter_name}` syntax
+4. Document required parameters in comments
+5. Test with `load_query_template()` method
+
 ## Development Commands
 
 ```bash
