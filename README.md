@@ -1,10 +1,54 @@
-# maf-agents
+# MAF Agents - AI-Powered Detector Development
 
-Multi-agent workflow system for Azure detector development using Microsoft Agent Framework (Python).
+Automated ETW detector development workflow using Microsoft Agent Framework, Azure OpenAI, FastAPI, and Next.js.
+
+> **Full-stack monorepo** with Python backend and Next.js frontend for conversational AI-powered detector development.
+
+## 🚀 Quick Start
+
+### Install All Dependencies
+
+```bash
+npm run install:all
+```
+
+Or using Make:
+```bash
+make install
+```
+
+### Configure Environment
+
+```bash
+# Server environment
+cd server && cp .env.example .env
+# Edit .env with your Azure credentials
+
+# Client environment
+cd ../client
+echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
+echo "NEXT_PUBLIC_WS_URL=ws://localhost:8000" >> .env.local
+```
+
+### Run Both Servers
+
+```bash
+# From root directory
+npm run dev
+```
+
+This starts:
+- 🐍 **API Server** at `http://localhost:8000` (FastAPI + WebSocket)
+- ⚛️  **Web UI** at `http://localhost:3000` (Next.js 15)
+
+Or using Make:
+```bash
+make dev
+```
 
 ## Overview
 
-**maf-agents** automates the end-to-end Azure detector development lifecycle from ETW input to production promotion through a conversational, multi-agent workflow system. Built on Microsoft Agent Framework, the system orchestrates 8 specialized executors with checkpoint-based state management and human-in-the-loop approval gates.
+**maf-agents** automates the end-to-end Azure detector development lifecycle from ETW input to production promotion through a conversational, multi-agent workflow system. Built on Microsoft Agent Framework, the system orchestrates 9 specialized executors with checkpoint-based state management and human-in-the-loop approval gates.
 
 ## Goals
 
@@ -21,18 +65,62 @@ The system uses a **sequential workflow orchestration** pattern with:
 - **Azure-Native Integrations**: Azure Repos for source control, Azure Kusto for data querying
 - **Conversational Interface**: CLI-based interaction with progress feedback and step-by-step status updates
 
-## Project Structure
+## 📁 Monorepo Structure
 
 ```
 maf-agents/
-├── workflows/          # Main orchestrator and workflow definitions
-├── agents/            # Individual sub-workflow agent implementations
-├── shared/            # Common utilities (Kusto client, Azure DevOps SDK wrappers, auth)
-├── tests/             # Unit and integration tests
-├── config/            # Configuration files and Kusto query templates
-├── docs/              # Documentation (PRD, architecture, stories)
-└── pyproject.toml     # Project configuration and dependencies
+├── server/             # Python backend (FastAPI + MAF)
+│   ├── api/            # FastAPI REST/WebSocket server
+│   ├── workflows/      # MAF workflow orchestration
+│   ├── agents/         # Conversational AI agents
+│   ├── shared/         # Shared utilities and models
+│   ├── config/         # Configuration files
+│   └── tests/          # Test suite
+│
+├── client/             # Next.js 15 frontend
+│   ├── src/app/        # App Router pages
+│   ├── src/components/ # React components (shadcn/ui)
+│   ├── src/hooks/      # React hooks
+│   └── src/lib/        # API client and utilities
+│
+├── docs/               # Documentation
+├── package.json        # Monorepo scripts
+└── Makefile            # Development commands
 ```
+
+## 🛠️ Available Commands
+
+### npm Scripts (Recommended)
+
+```bash
+npm run dev              # Run both server and client
+npm run dev:server       # Run only API server
+npm run dev:client       # Run only frontend
+npm run build            # Build for production
+npm run start            # Run both in production mode
+npm run install:all      # Install all dependencies
+npm run clean            # Clean build artifacts
+```
+
+### Makefile Commands
+
+```bash
+make dev                 # Run both servers
+make dev-server          # Run only API server
+make dev-client          # Run only frontend
+make install             # Install all dependencies
+make build               # Build for production
+make clean               # Clean build artifacts
+make test                # Run all tests
+make help                # Show all available commands
+```
+
+## 🌐 URLs (When Running Locally)
+
+- **Frontend**: http://localhost:3000
+- **API Server**: http://localhost:8000
+- **API Docs**: http://localhost:8000/docs (OpenAPI/Swagger)
+- **Health Check**: http://localhost:8000/health
 
 ## Prerequisites
 

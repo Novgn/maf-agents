@@ -1,0 +1,23 @@
+{
+  "name": "maf-agents-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\" --names \"API,UI\" --prefix-colors \"blue,magenta\"",
+    "dev:server": "cd server && uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000",
+    "dev:client": "cd client && npm run dev",
+    "build": "npm run build:client",
+    "build:client": "cd client && npm run build",
+    "start": "concurrently \"npm run start:server\" \"npm run start:client\" --names \"API,UI\" --prefix-colors \"blue,magenta\"",
+    "start:server": "cd server && uv run uvicorn api.main:app --host 0.0.0.0 --port 8000",
+    "start:client": "cd client && npm run start",
+    "install:all": "npm install && cd client && npm install && cd ../server && uv sync --all-extras",
+    "clean": "rm -rf client/node_modules client/.next server/.venv server/__pycache__ server/**/__pycache__"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "workspaces": [
+    "client"
+  ]
+}

@@ -1,3 +1,7 @@
+# ============================================================================
+# Python Backend (server/)
+# ============================================================================
+
 # Python
 __pycache__/
 *.py[cod]
@@ -28,7 +32,8 @@ MANIFEST
 venv/
 ENV/
 env/
-.env
+server/.venv/
+server/venv/
 
 # Testing
 .tox/
@@ -39,7 +44,6 @@ env/
 nosetests.xml
 coverage.xml
 *.cover
-*.log
 .hypothesis/
 .pytest_cache/
 htmlcov/
@@ -51,26 +55,76 @@ dmypy.json
 .pyright/
 .pytype/
 
-# IDEs
+# MAF Checkpoints (keep directory but ignore checkpoint files)
+server/checkpoints/*.json
+checkpoints/*.json
+
+# uv
+.python-version
+server/uv.lock
+
+# ============================================================================
+# Next.js Frontend (client/)
+# ============================================================================
+
+# Dependencies
+node_modules/
+client/node_modules/
+
+# Next.js
+.next/
+client/.next/
+out/
+client/out/
+
+# Production build
+client/build/
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+client/.env.local
+client/.env.*.local
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# ============================================================================
+# Monorepo (root)
+# ============================================================================
+
+# Root dependencies
+/node_modules/
+package-lock.json
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.log
+logs/
+
+# ============================================================================
+# IDEs & OS
+# ============================================================================
+
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
+.bmad-core/
 
-# Project specific
-.env.local
-.env.*.local
-*.log
-logs/
+# ============================================================================
+# Azure & Cloud
+# ============================================================================
 
-# MAF Checkpoints (keep directory but ignore checkpoint files)
-checkpoints/*.json
-
-# Azure
 .azure/
-
-# uv
-.python-version
-uv.lock

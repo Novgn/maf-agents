@@ -23,6 +23,11 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0.1",
     "click>=8.1.7",
+
+    # FastAPI and server dependencies
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "websockets>=12.0",
 ]
 
 [project.optional-dependencies]
@@ -116,3 +121,5 @@ test = "pytest"
 test-cov = "pytest --cov=. --cov-report=html --cov-report=term"
 pre-commit-install = "pre-commit install"
 all-checks = ["lint", "format", "type-check", "test"]
+api = "uvicorn api.main:app --reload --host 0.0.0.0 --port 8000"
+workflow = "python workflows/detector_workflow.py"
