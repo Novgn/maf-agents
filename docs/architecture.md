@@ -43,7 +43,7 @@ Given the unique nature of this project (Microsoft Agent Framework POC for workf
 
 ### Technical Summary
 
-The **maf-agents** system is a **stateless workflow orchestration engine** built on Microsoft Agent Framework (Python) that implements a sequential agent-based architecture for automated Azure detector development. The main orchestrator coordinates 7 specialized sub-workflow agents (ETW Input Collection, Schema Discovery, Code Generator, Approval Gate, Deployment Verification, Results Analysis, Production Promotion) through a linear workflow with checkpoint-based state persistence to Azure Table Storage. The system integrates with Azure-native services—Azure Repos for source control operations and Azure Kusto for data querying—using official Python SDKs with Azure AD service principal authentication. This architecture directly supports the PRD goals of 70% cycle time reduction and 90%+ pattern consistency by automating the complete detector lifecycle while maintaining human-in-the-loop control at critical approval gates.
+The **maf-agents** system is a **stateless workflow orchestration engine** built on Microsoft Agent Framework (Python) that implements a sequential executor-based architecture for automated Azure detector development. The main orchestrator coordinates 8 specialized executors (ETW Input Collection, Schema Discovery, Code Generator, PR Creation, Approval Gate, Deployment Verification, Results Analysis, Production Promotion) through a linear workflow with checkpoint-based state persistence using MAF's FileCheckpointStorage. The system integrates with Azure-native services—Azure Repos for source control operations and Azure Kusto for data querying—using official Python SDKs with Azure AD service principal authentication. This architecture directly supports the PRD goals of 70% cycle time reduction and 90%+ pattern consistency by automating the complete detector lifecycle while maintaining human-in-the-loop control at critical approval gates.
 
 ### High Level Overview
 
@@ -66,11 +66,11 @@ The **maf-agents** system is a **stateless workflow orchestration engine** built
 
 **Stateless Workflow Execution Engine with Checkpoint Persistence**
 
-- **Stateless Execution**: No in-memory session state; all workflow state externalized to Azure Table Storage
-- **Checkpoint System**: State persisted before/after each agent execution and at critical workflow milestones
-- **Sequential Orchestration**: Main orchestrator invokes agents in fixed order using Microsoft Agent Framework patterns
-- **Request/Response Communication**: Agents communicate via framework's request/response pattern
-- **Idempotent Agents**: Agents designed to be safely re-runnable for retry scenarios
+- **Stateless Execution**: No in-memory session state; all workflow state externalized to FileCheckpointStorage
+- **Checkpoint System**: State persisted using MAF's FileCheckpointStorage at workflow milestones
+- **Sequential Orchestration**: Main orchestrator invokes executors in fixed order using Microsoft Agent Framework's WorkflowBuilder
+- **Executor Pattern**: Uses MAF's `@executor` decorator pattern (not custom agent wrapper classes)
+- **Idempotent Executors**: Executors designed to be safely re-runnable for retry scenarios
 
 **4. Primary User Interaction Flow**
 
@@ -95,9 +95,9 @@ User (CLI)
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| **Framework** | Microsoft Agent Framework (Python) | Required by PRD; provides proven orchestration patterns, checkpoint system, agent communication |
-| **State Management** | Azure Table Storage checkpoints | Externalized state enables recovery; Azure-native; cost-effective for POC |
-| **Agent Pattern** | Sequential sub-workflows | Simplifies POC development; matches linear detector workflow; easier to debug than parallel |
+| **Framework** | Microsoft Agent Framework (Python) | Required by PRD; provides proven orchestration patterns, checkpoint system, executor communication |
+| **State Management** | FileCheckpointStorage (MAF built-in) | Externalized state enables recovery; Simple for POC; production would use Azure Table Storage |
+| **Executor Pattern** | Sequential executors with @executor decorator | MAF best practice; simplifies POC development; matches linear detector workflow; easier to debug than parallel |
 | **Azure Integration** | Azure Repos + Azure Kusto (exclusive) | Required by PRD; native Azure SDKs provide reliability and auth integration |
 | **Authentication** | Azure AD service principal | Centralized auth; supports least-privilege RBAC; Key Vault integration for secrets |
 | **Error Handling** | Retry with exponential backoff | Handles transient Azure API failures; aligns with PRD NFR10, NFR17 |

@@ -4,7 +4,7 @@ Multi-agent workflow system for Azure detector development using Microsoft Agent
 
 ## Overview
 
-**maf-agents** automates the end-to-end Azure detector development lifecycle from ETW input to production promotion through a conversational, multi-agent workflow system. Built on Microsoft Agent Framework, the system orchestrates 7 specialized agents with checkpoint-based state management and human-in-the-loop approval gates.
+**maf-agents** automates the end-to-end Azure detector development lifecycle from ETW input to production promotion through a conversational, multi-agent workflow system. Built on Microsoft Agent Framework, the system orchestrates 8 specialized executors with checkpoint-based state management and human-in-the-loop approval gates.
 
 ## Goals
 
@@ -16,10 +16,10 @@ Multi-agent workflow system for Azure detector development using Microsoft Agent
 ## Architecture
 
 The system uses a **sequential workflow orchestration** pattern with:
-- **7 Specialized Agents**: ETW Input, Schema Discovery, Code Generator, Approval Gate, Deployment Verification, Results Analysis, Production Promotion
-- **Checkpoint-Based State Management**: Azure Table Storage for workflow recovery
+- **8 Specialized Executors**: ETW Input, Schema Discovery, Code Generator, PR Creation, Approval Gate, Deployment Verification, Results Analysis, Production Promotion
+- **Checkpoint-Based State Management**: File-based checkpoints for workflow recovery
 - **Azure-Native Integrations**: Azure Repos for source control, Azure Kusto for data querying
-- **Conversational Interface**: CLI-based interaction with progress feedback
+- **Conversational Interface**: CLI-based interaction with progress feedback and step-by-step status updates
 
 ## Project Structure
 
@@ -197,10 +197,189 @@ uv run poe all-checks
 
 ## Running the Workflow
 
+### Basic Execution
+
 ```bash
 # Start the detector development workflow
 uv run python workflows/detector_workflow.py
 ```
+
+### Workflow Steps
+
+The workflow will execute 8 sequential steps:
+
+**Step 1: ETW Input Collection [1/8]**
+- Validates provider GUID and rule ID from input
+- Example output: "✓ ETW Input validated: provider_guid=..., rule_id=..."
+
+**Step 2: Schema Discovery [2/8]**
+- Queries Kusto for ETW schema and existing detectors
+- Example output: "✓ Schema discovered: 5 fields found"
+
+**Step 3: Code Generator [3/8]**
+- Analyzes historical PRs for patterns
+- Generates detector code files
+- Example output: "✓ Generated 3 files for detector"
+
+**Step 4: PR Creation [4/8]**
+- Creates branch: `detector/{rule_id}-{timestamp}`
+- Commits code and creates PR in Azure Repos
+- Example output: "✓ PR created: https://dev.azure.com/..."
+
+**Step 5: Approval Gate [5/8]**
+- Presents PR for user review
+- Waits for explicit approval
+- Example prompt: "Do you want to proceed with this PR? (yes/no):"
+
+**Step 6: Deployment Verification [6/8]**
+- Polls PR status every 30 seconds (exponential backoff)
+- Verifies PR merge and deployment completion
+- Example output: "✓ Deployment detected after 5 minutes"
+
+**Step 7: Results Analysis [7/8]**
+- Fetches detector results from Kusto
+- Presents metrics and asks for confirmation
+- Example output: "Events: 42, Error Rate: 0.5%, Do results look correct? (yes/no):"
+
+**Step 8: Production Promotion [8/8]**
+- Analyzes promotion patterns from historical PRs
+- Creates promotion PR with feature flag configuration
+- Example output: "✓ Promotion PR created: https://dev.azure.com/..."
+
+### Environment Variables for Testing
+
+```bash
+# Automatically confirm results (skips manual approval in results analysis)
+export MAF_AUTO_CONFIRM_RESULTS=true
+
+# Run with auto-confirmation
+uv run python workflows/detector_workflow.py
+```
+
+### Workflow Input Format
+
+The workflow expects input in the following format:
+
+```python
+{
+    "workflow_id": "unique-workflow-id",
+    "provider_guid": "12345678-1234-1234-1234-123456789012",
+    "rule_id": "my_detector_rule_name"
+}
+```
+
+### Expected Duration
+
+| Scenario | Expected Time |
+|----------|--------------|
+| Simple detector (3-5 fields) | 30-45 minutes |
+| Medium detector (5-8 fields) | 45-60 minutes |
+| Complex detector (8+ fields) | 60-90 minutes |
+| Very complex (multi-event) | 90-120 minutes |
+
+**Note**: Most time is spent waiting for PR merge and deployment (Step 6)
+
+## Troubleshooting
+
+### Common Issues
+
+#### 1. Kusto Connection Timeout
+
+**Symptom**: `KustoQueryException: Query execution exceeded timeout`
+
+**Cause**: Query taking too long for high-volume data
+
+**Solution**:
+```python
+# Increase timeout in shared/kusto_client.py
+results = kusto_client.execute_query(query, timeout_seconds=60)
+```
+
+#### 2. Azure DevOps Authentication Failed
+
+**Symptom**: `401 Unauthorized` when creating PRs
+
+**Cause**: Invalid or expired service principal credentials
+
+**Solution**:
+1. Verify environment variables are set correctly
+2. Check service principal has appropriate permissions:
+   - Code: Read & Write
+   - Pull Requests: Contribute
+3. Regenerate credentials if expired
+
+#### 3. Checkpoint File Permission Error
+
+**Symptom**: `PermissionError: [Errno 13] Permission denied: './checkpoints'`
+
+**Cause**: Checkpoint directory doesn't exist or lacks write permissions
+
+**Solution**:
+```bash
+# Create checkpoint directory
+mkdir -p checkpoints
+chmod 755 checkpoints
+```
+
+#### 4. Pattern Matching Accuracy Low
+
+**Symptom**: Generated code doesn't follow expected patterns
+
+**Cause**: Insufficient historical PRs for pattern learning
+
+**Solution**:
+- Ensure repository has 30+ historical detector PRs
+- Review pattern confidence scores in logs
+- Manually adjust pattern thresholds if needed
+
+#### 5. Deployment Detection Taking Too Long
+
+**Symptom**: Workflow stuck at "Checking deployment status..."
+
+**Cause**: PR not yet merged or deployment pipeline delayed
+
+**Solution**:
+- Verify PR is actually merged in Azure DevOps
+- Check deployment pipeline status manually
+- Increase polling timeout if pipelines are slow
+
+#### 6. Results Analysis Fails
+
+**Symptom**: "No results found" or empty results
+
+**Cause**: Detector not generating events yet or Kusto query issue
+
+**Solution**:
+1. Verify detector is actually deployed and running
+2. Check Kusto query template in `config/kusto_queries.yaml`
+3. Manually run query in Kusto Explorer to debug
+4. Adjust time range in query if needed
+
+### Debugging Commands
+
+```bash
+# Check environment variables
+env | grep AZURE
+
+# Test Kusto connection
+uv run python -c "from shared.kusto_client import create_kusto_client; print('Kusto OK')"
+
+# Test Azure DevOps connection
+uv run python -c "from shared.auth import get_auth_manager; print('Auth OK')"
+
+# View checkpoint files
+ls -la checkpoints/
+
+# Check logs (if logging configured)
+tail -f logs/workflow.log
+```
+
+### Getting Help
+
+1. **Review Documentation**: Check [docs/](./docs/) for detailed guides
+2. **Check Issues Log**: See [docs/poc-issues-log.md](./docs/poc-issues-log.md) for known issues
+3. **Run Tests**: `uv run pytest tests/` to verify system health
+4. **Enable Verbose Logging**: Set `MAF_LOG_LEVEL=DEBUG` for detailed logs
 
 ## Testing
 
@@ -238,26 +417,82 @@ uv run pytest tests/integration/test_e2e_workflow.py
 
 ## Key Components
 
-### Main Orchestrator
-- Coordinates 7 sequential agents
-- Manages checkpoint persistence
-- Provides conversational CLI interface
+### Main Orchestrator (`workflows/detector_workflow.py`)
+- Coordinates 8 sequential executors using MAF's `WorkflowBuilder`
+- Manages checkpoint persistence using MAF's `FileCheckpointStorage`
+- Provides CLI interface with formatted output and progress indicators
+- Handles workflow streaming and event processing
 
-### Agents
-1. **ETW Input Collection**: Gather providerGuid and ruleId
-2. **Schema Discovery**: Query Kusto for ETW schema
-3. **Code Generator**: Generate detector code from patterns
-4. **PR Creation**: Create branch and submit PR
-5. **Approval Gate**: Human-in-the-loop checkpoint
-6. **Deployment Verification**: Monitor PR merge and deployment
-7. **Results Analysis**: Query and analyze detector results
-8. **Production Promotion**: Create promotion PR
+### Executors (8-Step Sequential Workflow)
+1. **ETW Input Collection** (`etw_input_collection_executor`): Validates and collects providerGuid and ruleId from workflow input
+2. **Schema Discovery** (`schema_discovery_executor`): Queries Kusto to discover ETW schema and existing detectors
+3. **Code Generator** (`code_generator_executor`): Analyzes historical PRs for patterns and generates detector code
+4. **PR Creation** (`pr_creation_executor`): Creates Git branch, commits code, and creates pull request in Azure Repos
+5. **Approval Gate** (`approval_gate_executor`): Human-in-the-loop approval using MAF's ChatAgent with `@ai_function` approval pattern
+6. **Deployment Verification** (`deployment_verification_executor`): Polls PR status and verifies deployment completion with exponential backoff
+7. **Results Analysis** (`results_analysis_executor`): Fetches detector results from Kusto and requests user confirmation
+8. **Production Promotion** (`production_promotion_executor`): Analyzes promotion patterns and creates customer-facing PR
 
 ### Shared Utilities
-- **Authentication**: Azure AD service principal auth
-- **Checkpoint Manager**: State persistence to Azure Table Storage
-- **Kusto Client**: Query execution wrapper
-- **Azure Repos Client**: PR and branch management wrapper
+- **Authentication** (`shared/auth.py`): Azure AD service principal authentication and Azure DevOps connection management
+- **Checkpoint Storage** (MAF's `FileCheckpointStorage`): File-based state persistence for workflow recovery
+- **Kusto Client** (`shared/kusto_client.py`): Kusto query execution with template support
+- **Azure Repos Utils** (`shared/repos_utils.py`): Branch creation, file commits, and PR management
+
+## Known Limitations (POC)
+
+### POC Constraints
+
+1. **Single Workflow Execution**: Only one detector workflow can run at a time (no parallel processing)
+2. **Manual Configuration**: Kusto queries stored as static templates (no dynamic query generation)
+3. **Limited Error Recovery**: Some transient failures require manual intervention
+4. **CLI Interface Only**: No web UI or API endpoints
+5. **File-Based Checkpoints**: Uses local filesystem (not production-ready for distributed systems)
+
+### Out of Scope for POC
+
+- Multi-detector batch processing
+- Advanced error remediation with automated fixes
+- Custom workflow configuration UI
+- Real-time monitoring dashboards
+- Automatic rollback on detector failures
+- Support for non-ETW detector types
+- Multi-language support (Python only)
+- Performance optimization for large-scale queries
+
+### Technical Debt
+
+1. **Pattern Analyzer Requirements**: Needs 30+ historical PRs for >80% accuracy
+2. **Azure API Rate Limiting**: No circuit breaker pattern implemented
+3. **Connection Timeouts**: Long-running workflows may experience Kusto connection timeouts
+4. **Error Messages**: Some error messages are too technical for end users
+5. **Test Coverage**: Integration tests require Azure services (17 tests currently skipped)
+
+**See [docs/poc-issues-log.md](./docs/poc-issues-log.md) for detailed issue tracking**
+
+## Production Recommendations
+
+### High Priority (Must Have for Production)
+
+1. **Monitoring & Telemetry**: Application Insights integration for comprehensive logging
+2. **Error Handling**: Implement retry with exponential backoff and circuit breaker patterns
+3. **Pattern Management**: Periodic retraining of pattern analyzer (weekly/monthly)
+4. **User Experience**: Real-time progress indicators and actionable error messages
+5. **Performance**: Query result caching and connection pooling
+
+### Medium Priority (Should Have)
+
+6. **Security & Compliance**: Comprehensive audit logging and RBAC
+7. **Scalability**: Azure Table Storage for checkpoints, workflow queue for concurrency
+8. **Testing**: Expand integration test coverage for all edge cases
+9. **Documentation**: Comprehensive user guide with troubleshooting
+
+### Low Priority (Nice to Have)
+
+10. **Advanced Features**: ML-based code generation, integration testing executor
+11. **User Interface**: Web-based UI, Slack/Teams notifications
+
+**See [docs/poc-validation-report.md](./docs/poc-validation-report.md) for complete analysis**
 
 ## POC Success Criteria
 
