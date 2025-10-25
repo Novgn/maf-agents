@@ -20,6 +20,21 @@ class WorkflowStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class DetectorTriageData(BaseModel):
+    """Detector triage and requirements gathering data."""
+
+    summary: str = Field(..., description="Summary of detector requirements")
+    conversation_history: List[Dict[str, str]] = Field(
+        default_factory=list,
+        description="Full conversation history with the triage agent"
+    )
+    requirements_complete: bool = Field(
+        default=False,
+        description="Whether requirements gathering completed successfully"
+    )
+    gathered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class ETWInputData(BaseModel):
     """ETW input parameters collected from user."""
 

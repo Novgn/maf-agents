@@ -2,7 +2,7 @@
 Main workflow orchestrator for maf-agents using Microsoft Agent Framework.
 
 This implementation uses the actual MAF SDK with proper executor patterns
-for sequential orchestration of 7 detector development steps, integrating
+for sequential orchestration of 9 detector development steps, integrating
 with Azure Kusto and Azure DevOps services.
 """
 
@@ -23,7 +23,6 @@ from agent_framework import (
     ChatAgent,
     ChatMessage,
     ai_function,
-    AgentRunResponse,
 )
 from agent_framework._workflows._edge import Case, Default
 from agent_framework.azure import AzureOpenAIChatClient
@@ -32,6 +31,7 @@ from typing_extensions import Never
 from shared.config import get_config
 from shared.kusto_client import create_kusto_client
 from shared.auth import get_auth_manager
+from agents.detector_triage_agent import create_detector_triage_agent
 from agents.etw_input_agent import create_etw_input_agent
 from agents.schema_discovery_agent import create_schema_discovery_agent
 
@@ -41,7 +41,7 @@ checkpoint_dir.mkdir(exist_ok=True)
 checkpoint_storage = FileCheckpointStorage(checkpoint_dir)
 
 
-# Define the 8 workflow agents as MAF executors
+# Define the 9 workflow agents as MAF executors
 # Each executor represents a step in the detector development workflow
 
 # Condition function for switch-case routing
@@ -90,29 +90,68 @@ async def workflow_failure_handler(
     await ctx.yield_output(workflow_data)
 
 
-@executor(id="etw_input_collection")
-async def etw_input_collection_executor(
+@executor(id="detector_triage")
+async def detector_triage_executor(
     input_data: dict[str, Any] | None,
     ctx: WorkflowContext[dict[str, Any]]
 ) -> None:
     """
-    Step 1: ETW Input Collection
-    Uses the ETW Input Agent to collect and validate providerGuid and ruleId
-    through a conversational interface.
+    Step 1: Detector Triage & Ideation
+
+    Conversational triage to understand what the user wants to detect.
+    Gathers requirements, use case, and context before proceeding to technical details.
     """
-    print("\n✓ [1/8] ETW Input Collection (Conversational Agent)")
+    print("\n✓ [1/9] Detector Triage & Ideation (Conversational Agent)")
+    print("="*70)
+    print("Let's understand what you want to detect...")
+    print("="*70)
+
+    # Create the Detector Triage Agent
+    agent = await create_detector_triage_agent()
+
+    # Gather requirements through conversation
+    triage_data = await agent.gather_requirements(max_turns=10)
+
+    # Build workflow data with triage context
+    workflow_data = {
+        "workflow_id": input_data.get("workflow_id", str(uuid4())) if input_data else str(uuid4()),
+        "current_step": "detector_triage",
+        "status": "success",
+        "triage_summary": triage_data.summary,
+        "triage_conversation": triage_data.conversation_history,
+        "requirements_complete": triage_data.requirements_complete,
+        "workflow_start_time": datetime.now().isoformat(),
+    }
+
+    print(f"\n    ✓ Triage complete - detector requirements gathered")
+    print(f"    ✓ Status: Success")
+
+    await ctx.send_message(workflow_data)
+
+
+@executor(id="etw_input_collection")
+async def etw_input_collection_executor(
+    workflow_data: dict[str, Any],
+    ctx: WorkflowContext[dict[str, Any]]
+) -> None:
+    """
+    Step 2: ETW Input Collection
+    Uses the ETW Input Agent to collect and validate providerGuid and ruleId
+    through a conversational interface, informed by the triage context.
+    """
+    print("\n✓ [2/9] ETW Input Collection (Conversational Agent)")
     print("    Initializing ETW Input Collection Agent...")
 
     # Create the ETW Input Agent
     agent = await create_etw_input_agent()
 
     # Check for automation flag - only skip conversation if explicitly requested
-    use_automation = input_data.get("_use_automation", False) if input_data else False
+    use_automation = workflow_data.get("_use_automation", False)
 
-    if use_automation and input_data and "provider_guid" in input_data and "rule_id" in input_data:
+    if use_automation and "provider_guid" in workflow_data and "rule_id" in workflow_data:
         # Automation mode: use pre-populated data
-        provider_guid = input_data["provider_guid"]
-        rule_id = input_data["rule_id"]
+        provider_guid = workflow_data["provider_guid"]
+        rule_id = workflow_data["rule_id"]
         print(f"    Using pre-populated input data (automation mode)")
 
         # Validate pre-populated data using the agent
@@ -122,25 +161,30 @@ async def etw_input_collection_executor(
         )
     else:
         # Default: Interactive conversational collection
+        # Show triage context if available
+        if "triage_summary" in workflow_data:
+            print("\n" + "="*70)
+            print("📋 Detector Requirements Summary:")
+            print("="*70)
+            print(f"{workflow_data['triage_summary']}\n")
+            print("="*70)
+
         print("\n" + "="*70)
-        print("📝 Please provide ETW detector information")
+        print("📝 Please provide ETW detector technical details")
         print("="*70)
         etw_input = await agent.collect_inputs()
 
-    # Build workflow data
-    etw_data = {
-        "provider_guid": etw_input.provider_guid,
-        "rule_id": etw_input.rule_id,
-        "workflow_id": input_data.get("workflow_id", str(uuid4())) if input_data else str(uuid4()),
-        "current_step": "etw_input_collection",
-        "status": "success",
-    }
+    # Merge workflow data from triage with ETW data
+    workflow_data["provider_guid"] = etw_input.provider_guid
+    workflow_data["rule_id"] = etw_input.rule_id
+    workflow_data["current_step"] = "etw_input_collection"
+    workflow_data["status"] = "success"
 
     print(f"\n    ✓ Provider GUID: {etw_input.provider_guid}")
     print(f"    ✓ Rule ID: {etw_input.rule_id}")
     print(f"    ✓ Status: Success")
 
-    await ctx.send_message(etw_data)
+    await ctx.send_message(workflow_data)
 
 
 @executor(id="schema_discovery")
@@ -149,11 +193,11 @@ async def schema_discovery_executor(
     ctx: WorkflowContext[dict[str, Any]]
 ) -> None:
     """
-    Step 2: Schema Discovery
+    Step 3: Schema Discovery
     Uses the Schema Discovery Agent to query Kusto for ETW schema
     and existing detectors through a conversational interface.
     """
-    print("\n✓ [2/8] Schema Discovery (Conversational Agent)")
+    print("\n✓ [3/9] Schema Discovery (Conversational Agent)")
     print("    Initializing Schema Discovery Agent...")
 
     config = get_config()
@@ -231,10 +275,10 @@ async def code_generator_executor(
     ctx: WorkflowContext[dict[str, Any]]
 ) -> None:
     """
-    Step 3: Code Generator
+    Step 4: Code Generator
     Analyzes historical PRs and generates detector code.
     """
-    print("\n✓ [3/8] Code Generator")
+    print("\n✓ [4/9] Code Generator")
     print("    Analyzing historical PR patterns...")
     print("    Generating detector code...")
 
@@ -255,10 +299,10 @@ async def pr_creation_executor(
     ctx: WorkflowContext[dict[str, Any]]
 ) -> None:
     """
-    Step 4: PR Creation
+    Step 5: PR Creation
     Creates branch, commits code, and submits PR to Azure Repos using Azure DevOps SDK directly.
     """
-    print("\n✓ [4/8] PR Creation")
+    print("\n✓ [5/9] PR Creation")
 
     config = get_config()
 
@@ -486,7 +530,7 @@ async def approval_gate_executor(
     ctx: WorkflowContext[dict[str, Any]]
 ) -> None:
     """
-    Step 5: User Approval Gate using MAF's ChatAgent approval pattern.
+    Step 6: User Approval Gate using MAF's ChatAgent approval pattern.
 
     Pauses workflow for human review and approval of PR using MAF's
     built-in user input request system with @ai_function approval_mode.
@@ -494,7 +538,7 @@ async def approval_gate_executor(
     This is a critical human-in-the-loop control point where users
     review the generated PR before allowing the workflow to continue.
     """
-    print("\n✓ [5/8] User Approval Gate")
+    print("\n✓ [6/9] User Approval Gate")
     print("=" * 70)
 
     # Create chat client for approval agent
@@ -621,13 +665,13 @@ async def deployment_verification_executor(
     ctx: WorkflowContext[dict[str, Any]]
 ) -> None:
     """
-    Step 6: Deployment Verification
+    Step 7: Deployment Verification
 
     Monitors PR merge status and verifies successful deployment.
     Polls Azure Repos every 30 seconds with 60 minute timeout.
     Implements exponential backoff for API retries.
     """
-    print("\n✓ [6/8] Deployment Verification")
+    print("\n✓ [7/9] Deployment Verification")
     print("=" * 70)
 
     # Check if approval was granted (this should not happen with conditional edges)
@@ -920,11 +964,11 @@ async def results_analysis_executor(
     ctx: WorkflowContext[dict[str, Any]]
 ) -> None:
     """
-    Step 7: Results Analysis
+    Step 8: Results Analysis
     Queries Kusto for detector results, analyzes effectiveness, and prompts user for confirmation.
     Uses MAF ChatAgent approval pattern for human-in-the-loop confirmation.
     """
-    print("\n✓ [7/8] Results Analysis")
+    print("\n✓ [8/9] Results Analysis")
     print("    Initializing Results Analysis...")
 
     # Fetch and analyze results from Kusto
@@ -1061,11 +1105,11 @@ async def production_promotion_executor(
     ctx: WorkflowContext[Never, dict[str, Any]]
 ) -> None:
     """
-    Step 8: Production Promotion
+    Step 9: Production Promotion
     Creates a PR to promote the detector to customer-facing production status.
     Uses PromotionPatternAnalyzer to follow team conventions.
     """
-    print("\n✓ [8/8] Production Promotion")
+    print("\n✓ [9/9] Production Promotion")
     print("    Analyzing promotion patterns...")
 
     # Check if results were confirmed (should not happen with conditional edges)
@@ -1239,7 +1283,7 @@ async def build_detector_workflow():
     """
     Build the detector development workflow using MAF WorkflowBuilder.
 
-    This creates a sequential pipeline of 8 executors with conditional routing that
+    This creates a sequential pipeline of 9 executors with conditional routing that
     stops the workflow if any step fails. Checkpointing is enabled for recovery.
 
     Each executor sets status="success" or status="failed", and conditional routing
@@ -1247,7 +1291,14 @@ async def build_detector_workflow():
     """
     workflow = (
         WorkflowBuilder()
-        .set_start_executor(etw_input_collection_executor)
+        .set_start_executor(detector_triage_executor)
+        .add_switch_case_edge_group(
+            detector_triage_executor,
+            [
+                Case(is_successful, etw_input_collection_executor),
+                Default(workflow_failure_handler)
+            ]
+        )
         .add_switch_case_edge_group(
             etw_input_collection_executor,
             [
