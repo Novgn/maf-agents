@@ -25,6 +25,7 @@ from shared.config import get_config
 from shared.kusto_client import create_kusto_client
 from shared.auth import get_auth_manager
 from agents.etw_input_agent import create_etw_input_agent
+from agents.schema_discovery_agent import create_schema_discovery_agent
 
 # Configure checkpoint storage
 checkpoint_dir = Path("./checkpoints")
@@ -88,10 +89,11 @@ async def schema_discovery_executor(
 ) -> None:
     """
     Step 2: Schema Discovery
-    Queries Kusto to discover ETW schema and existing detectors.
+    Uses the Schema Discovery Agent to query Kusto for ETW schema
+    and existing detectors through a conversational interface.
     """
-    print("\n✓ [2/7] Schema Discovery")
-    print(f"    Querying Kusto for provider: {etw_data['provider_guid']}")
+    print("\n✓ [2/7] Schema Discovery (Conversational Agent)")
+    print("    Initializing Schema Discovery Agent...")
 
     config = get_config()
 
@@ -105,41 +107,49 @@ async def schema_discovery_executor(
                 auth_manager=auth_mgr,
             )
 
-            # Query ETW schema
-            schema_query = kusto_client.load_query_template(
-                "get_etw_schema",
-                {"provider_guid": etw_data["provider_guid"]}
+            # Create the Schema Discovery Agent
+            agent = await create_schema_discovery_agent(
+                kusto_client=kusto_client,
+                use_azure=False
             )
-            schema_fields = kusto_client.execute_query(schema_query)
-            print(f"    ✓ Schema fields discovered: {len(schema_fields)}")
 
-            # Query existing detectors
-            detectors_query = kusto_client.load_query_template(
-                "find_existing_detectors",
-                {"provider_guid": etw_data["provider_guid"]}
+            # Run schema discovery
+            schema_data = await agent.discover_schema(
+                provider_guid=etw_data["provider_guid"],
+                rule_id=etw_data["rule_id"]
             )
-            existing_detectors = kusto_client.execute_query(detectors_query)
-            print(f"    ✓ Existing detectors found: {len(existing_detectors)}")
+
+            print(f"    ✓ Schema fields discovered: {len(schema_data.schema_fields)}")
+            print(f"    ✓ Existing detectors found: {len(schema_data.existing_detectors)}")
+
+            # Convert to dict for workflow state
+            etw_data["schema_fields"] = [
+                {
+                    "FieldName": field.name,
+                    "DataType": field.data_type,
+                    "Description": field.description
+                }
+                for field in schema_data.schema_fields
+            ]
+            etw_data["existing_detectors"] = schema_data.existing_detectors
 
         except Exception as e:
-            print(f"    ⚠️  Kusto query failed: {str(e)}, using placeholder data")
-            schema_fields = [
-                {"FieldName": "EventId", "DataType": "int"},
-                {"FieldName": "Timestamp", "DataType": "datetime"},
-                {"FieldName": "Message", "DataType": "string"},
+            print(f"    ⚠️  Schema discovery failed: {str(e)}, using placeholder data")
+            etw_data["schema_fields"] = [
+                {"FieldName": "EventId", "DataType": "int", "Description": "Event ID"},
+                {"FieldName": "Timestamp", "DataType": "datetime", "Description": "Event timestamp"},
+                {"FieldName": "Message", "DataType": "string", "Description": "Event message"},
             ]
-            existing_detectors = []
+            etw_data["existing_detectors"] = []
     else:
         print("    ⚠️  Kusto not configured, using placeholder data")
-        schema_fields = [
-            {"FieldName": "EventId", "DataType": "int"},
-            {"FieldName": "Timestamp", "DataType": "datetime"},
-            {"FieldName": "Message", "DataType": "string"},
+        etw_data["schema_fields"] = [
+            {"FieldName": "EventId", "DataType": "int", "Description": "Event ID"},
+            {"FieldName": "Timestamp", "DataType": "datetime", "Description": "Event timestamp"},
+            {"FieldName": "Message", "DataType": "string", "Description": "Event message"},
         ]
-        existing_detectors = []
+        etw_data["existing_detectors"] = []
 
-    etw_data["schema_fields"] = schema_fields
-    etw_data["existing_detectors"] = existing_detectors
     etw_data["current_step"] = "schema_discovery"
 
     await ctx.send_message(etw_data)
