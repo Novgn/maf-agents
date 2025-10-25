@@ -34,6 +34,7 @@ export function useWorkflow(): WorkflowContextType {
   const [isSubmittingInput, setIsSubmittingInput] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [isUsingPolling, setIsUsingPolling] = useState(false);
+  const [latestMessage, setLatestMessage] = useState<Record<string, unknown> | null>(null);
 
   const wsManagerRef = useRef<WebSocketManager | null>(null);
 
@@ -54,38 +55,45 @@ export function useWorkflow(): WorkflowContextType {
    * Handles incoming WebSocket messages and updates workflow state.
    * @param data - WebSocket message data
    */
-  const handleWorkflowUpdate = useCallback((data: Record<string, unknown>) => {
-    console.log("Workflow update:", data);
+  const handleWorkflowUpdate = useCallback(
+    (data: Record<string, unknown>) => {
+      console.log("Workflow update:", data);
 
-    // Update overall status
-    if (data.status && typeof data.status === "string") {
-      setStatus(data.status);
-    }
+      // Store the latest message for components to access
+      setLatestMessage(data);
 
-    // Update current step
-    if (data.step_number && typeof data.step_number === "number") {
-      setCurrentStep(data.step_number);
-
-      // Mark previous steps as completed
-      for (let i = 1; i < data.step_number; i++) {
-        updateStepStatus(i, "completed");
+      // Update overall status
+      if (data.status && typeof data.status === "string") {
+        setStatus(data.status);
       }
 
-      // Mark current step as in progress
-      updateStepStatus(data.step_number, "in_progress");
-    }
-
-    // Handle specific event types
-    if (data.type === "workflow_complete") {
-      updateStepStatus(9, "completed");
-    } else if (data.type === "workflow_failed") {
-      const errorMessage = typeof data.error === "string" ? data.error : "Workflow failed";
-      setError(errorMessage);
+      // Update current step
       if (data.step_number && typeof data.step_number === "number") {
-        updateStepStatus(data.step_number, "failed");
+        setCurrentStep(data.step_number);
+
+        // Mark previous steps as completed
+        for (let i = 1; i < data.step_number; i++) {
+          updateStepStatus(i, "completed");
+        }
+
+        // Mark current step as in progress
+        updateStepStatus(data.step_number, "in_progress");
       }
-    }
-  }, [updateStepStatus]);
+
+      // Handle specific event types
+      if (data.type === "workflow_complete") {
+        updateStepStatus(9, "completed");
+      } else if (data.type === "workflow_failed") {
+        const errorMessage =
+          typeof data.error === "string" ? data.error : "Workflow failed";
+        setError(errorMessage);
+        if (data.step_number && typeof data.step_number === "number") {
+          updateStepStatus(data.step_number, "failed");
+        }
+      }
+    },
+    [updateStepStatus]
+  );
 
   /**
    * Creates a new workflow session.
@@ -190,6 +198,7 @@ export function useWorkflow(): WorkflowContextType {
     isUsingPolling,
     isCreatingWorkflow,
     isSubmittingInput,
+    latestMessage,
     createWorkflow,
     submitInput,
   };

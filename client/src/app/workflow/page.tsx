@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useWorkflow } from "@/hooks/use-workflow";
 import { WorkflowStepper } from "@/components/workflow/workflow-stepper";
 import { ChatInterface } from "@/components/workflow/chat-interface";
@@ -22,6 +22,7 @@ export default function WorkflowPage() {
     isConnected,
     isReconnecting,
     isUsingPolling,
+    latestMessage,
     createWorkflow,
     submitInput,
   } = useWorkflow();
@@ -34,6 +35,49 @@ export default function WorkflowPage() {
     },
   ]);
   const [isLoadingResponse, setIsLoadingResponse] = useState(false);
+
+  // Track the last processed message to prevent duplicates
+  const lastProcessedMessageRef = useRef<Record<string, unknown> | null>(null);
+
+  // Handle WebSocket messages containing agent chat responses
+  useEffect(() => {
+    if (!latestMessage || latestMessage === lastProcessedMessageRef.current) return;
+
+    // Check if message contains agent chat response
+    // The backend might send: { type: "agent_message", message: "...", ... }
+    // or { data: { message: "..." }, ... }
+    const messageContent =
+      (latestMessage.message && typeof latestMessage.message === "string"
+        ? latestMessage.message
+        : null) ||
+      (latestMessage.data &&
+      typeof latestMessage.data === "object" &&
+      latestMessage.data !== null &&
+      "message" in latestMessage.data &&
+      typeof (latestMessage.data as Record<string, unknown>).message === "string"
+        ? (latestMessage.data as Record<string, unknown>).message
+        : null);
+
+    if (messageContent) {
+      // Mark this message as processed
+      lastProcessedMessageRef.current = latestMessage;
+
+      // Add agent response to chat
+      const assistantMessage: ChatMessage = {
+        role: "assistant",
+        content: messageContent as string,
+        timestamp: new Date().toISOString(),
+        metadata: {
+          step: currentStep,
+          data: latestMessage.data as Record<string, unknown> | undefined,
+        },
+      };
+      // Legitimate use case: subscribing to external WebSocket state and updating React state
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setChatMessages((prev) => [...prev, assistantMessage]);
+      setIsLoadingResponse(false);
+    }
+  }, [latestMessage, currentStep]);
 
   // Mock approval data - in real app, this would come from backend
   const [approvalData, setApprovalData] = useState<{
@@ -52,20 +96,14 @@ export default function WorkflowPage() {
     setIsLoadingResponse(true);
 
     try {
-      // Submit to backend
+      // Submit to backend - response will come via WebSocket
       await submitInput("triage_message", { message });
 
-      // In a real app, the response would come through WebSocket
-      // For now, we'll simulate a response
+      // Note: The agent response will arrive via WebSocket and be handled by the useEffect above
+      // If no response arrives within a reasonable time, we'll timeout the loading state
       setTimeout(() => {
-        const assistantMessage: ChatMessage = {
-          role: "assistant",
-          content: "Thank you for that information. Can you tell me more about the expected behavior and how often you expect this event to occur?",
-          timestamp: new Date().toISOString(),
-        };
-        setChatMessages((prev) => [...prev, assistantMessage]);
         setIsLoadingResponse(false);
-      }, 1000);
+      }, 30000); // 30 second timeout
     } catch (err) {
       setIsLoadingResponse(false);
       console.error("Failed to send message:", err);

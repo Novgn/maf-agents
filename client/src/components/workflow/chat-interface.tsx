@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -93,6 +94,41 @@ export function ChatInterface({
   );
 }
 
+/**
+ * Format timestamp to human-readable format
+ */
+function formatTimestamp(timestamp: string): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  // Less than 1 minute ago
+  if (diffMins < 1) {
+    return "Just now";
+  }
+
+  // Less than 1 hour ago
+  if (diffMins < 60) {
+    return `${diffMins}m ago`;
+  }
+
+  // Less than 24 hours ago
+  if (diffHours < 24) {
+    return `${diffHours}h ago`;
+  }
+
+  // Less than 7 days ago
+  if (diffDays < 7) {
+    return `${diffDays}d ago`;
+  }
+
+  // More than 7 days ago, show date
+  return date.toLocaleDateString();
+}
+
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
 
@@ -112,9 +148,37 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             : "bg-gray-100 text-gray-900"
         }`}
       >
-        <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+        {isUser ? (
+          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+        ) : (
+          <div className="text-sm prose prose-sm max-w-none prose-p:my-2 prose-headings:my-2 prose-ul:my-2 prose-ol:my-2">
+            <ReactMarkdown
+              components={{
+                // Style markdown elements to match message bubble
+                p: ({ children }) => <p className="text-gray-900">{children}</p>,
+                strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
+                em: ({ children }) => <em className="italic text-gray-900">{children}</em>,
+                code: ({ children }) => (
+                  <code className="bg-gray-200 px-1.5 py-0.5 rounded text-xs font-mono text-gray-900">
+                    {children}
+                  </code>
+                ),
+                pre: ({ children }) => (
+                  <pre className="bg-gray-200 p-2 rounded overflow-x-auto my-2">
+                    {children}
+                  </pre>
+                ),
+                ul: ({ children }) => <ul className="list-disc list-inside space-y-1">{children}</ul>,
+                ol: ({ children }) => <ol className="list-decimal list-inside space-y-1">{children}</ol>,
+                li: ({ children }) => <li className="text-gray-900">{children}</li>,
+              }}
+            >
+              {message.content}
+            </ReactMarkdown>
+          </div>
+        )}
         <p className={`text-xs mt-1 ${isUser ? "text-blue-100" : "text-gray-500"}`}>
-          {new Date(message.timestamp).toLocaleTimeString()}
+          {formatTimestamp(message.timestamp)}
         </p>
       </div>
     </div>
