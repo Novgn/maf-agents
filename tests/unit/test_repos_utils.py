@@ -12,6 +12,7 @@ from shared.repos_utils import (
     commit_and_push_files,
     create_pull_request,
     get_pull_request_status,
+    fetch_recent_prs,
 )
 
 
@@ -385,3 +386,145 @@ class TestGetPullRequestStatus:
         assert result["is_abandoned"] is True
         assert result["is_active"] is False
         assert result["is_completed"] is False
+
+
+class TestFetchRecentPRs:
+    """Tests for fetch_recent_prs utility function."""
+
+    def test_fetch_recent_prs_success(self):
+        """Test successful fetching of recent PRs."""
+        # Mock connection and git client
+        mock_connection = Mock()
+        mock_git_client = Mock()
+        mock_connection.clients.get_git_client.return_value = mock_git_client
+
+        # Mock PRs
+        mock_pr1 = Mock()
+        mock_pr1.pull_request_id = 123
+        mock_pr1.title = "Add detector for rule 1"
+        mock_pr1.description = "This PR adds a new detector"
+        mock_pr1.created_by = Mock(display_name="Test User")
+        mock_pr1.creation_date = Mock(isoformat=lambda: "2025-01-01T00:00:00")
+        mock_pr1.merge_status = "succeeded"
+        mock_pr1.source_ref_name = "refs/heads/feature/detector"
+        mock_pr1.target_ref_name = "refs/heads/main"
+
+        mock_pr2 = Mock()
+        mock_pr2.pull_request_id = 124
+        mock_pr2.title = "Update detector schema"
+        mock_pr2.description = "Updates the detector schema"
+        mock_pr2.created_by = Mock(display_name="Test User 2")
+        mock_pr2.creation_date = Mock(isoformat=lambda: "2025-01-02T00:00:00")
+        mock_pr2.merge_status = "succeeded"
+        mock_pr2.source_ref_name = "refs/heads/feature/schema"
+        mock_pr2.target_ref_name = "refs/heads/main"
+
+        mock_git_client.get_pull_requests.return_value = [mock_pr1, mock_pr2]
+
+        # Mock iterations and changes
+        mock_iteration = Mock()
+        mock_iteration.id = 1
+        mock_git_client.get_pull_request_iterations.return_value = [mock_iteration]
+
+        mock_change = Mock()
+        mock_change.item = Mock(path="detector_rule_1.py")
+        mock_change.change_type = "add"
+        mock_changes = Mock()
+        mock_changes.change_entries = [mock_change]
+        mock_git_client.get_pull_request_iteration_changes.return_value = mock_changes
+
+        # Call function
+        result = fetch_recent_prs(
+            connection=mock_connection,
+            project="TestProject",
+            repository_id="TestRepo",
+            limit=10,
+        )
+
+        # Verify results
+        assert len(result) == 2
+        assert result[0]["pr_id"] == 123
+        assert result[0]["title"] == "Add detector for rule 1"
+        assert len(result[0]["files"]) == 1
+        assert result[0]["files"][0]["path"] == "detector_rule_1.py"
+
+    def test_fetch_recent_prs_with_filter(self):
+        """Test fetching PRs with detector-only filter."""
+        # Mock connection and git client
+        mock_connection = Mock()
+        mock_git_client = Mock()
+        mock_connection.clients.get_git_client.return_value = mock_git_client
+
+        # Mock PRs - one detector-related, one not
+        mock_pr_detector = Mock()
+        mock_pr_detector.pull_request_id = 123
+        mock_pr_detector.title = "Add detector for rule 1"
+        mock_pr_detector.description = "Detector PR"
+        mock_pr_detector.created_by = Mock(display_name="User")
+        mock_pr_detector.creation_date = Mock(isoformat=lambda: "2025-01-01T00:00:00")
+        mock_pr_detector.merge_status = "succeeded"
+        mock_pr_detector.source_ref_name = "refs/heads/feature"
+        mock_pr_detector.target_ref_name = "refs/heads/main"
+
+        mock_pr_other = Mock()
+        mock_pr_other.pull_request_id = 124
+        mock_pr_other.title = "Fix typo in README"
+        mock_pr_other.description = "Documentation fix"
+        mock_pr_other.created_by = Mock(display_name="User")
+        mock_pr_other.creation_date = Mock(isoformat=lambda: "2025-01-02T00:00:00")
+        mock_pr_other.merge_status = "succeeded"
+        mock_pr_other.source_ref_name = "refs/heads/docs"
+        mock_pr_other.target_ref_name = "refs/heads/main"
+
+        mock_git_client.get_pull_requests.return_value = [mock_pr_detector, mock_pr_other]
+
+        # Mock empty iterations
+        mock_git_client.get_pull_request_iterations.return_value = []
+
+        # Call function with filter
+        result = fetch_recent_prs(
+            connection=mock_connection,
+            project="TestProject",
+            repository_id="TestRepo",
+            limit=10,
+            include_detector_only=True,
+        )
+
+        # Should only include detector PR
+        assert len(result) == 1
+        assert result[0]["pr_id"] == 123
+
+    def test_fetch_recent_prs_no_files(self):
+        """Test fetching PRs when file retrieval fails."""
+        # Mock connection and git client
+        mock_connection = Mock()
+        mock_git_client = Mock()
+        mock_connection.clients.get_git_client.return_value = mock_git_client
+
+        # Mock PR
+        mock_pr = Mock()
+        mock_pr.pull_request_id = 123
+        mock_pr.title = "Add detector"
+        mock_pr.description = "Test"
+        mock_pr.created_by = Mock(display_name="User")
+        mock_pr.creation_date = Mock(isoformat=lambda: "2025-01-01T00:00:00")
+        mock_pr.merge_status = "succeeded"
+        mock_pr.source_ref_name = "refs/heads/feature"
+        mock_pr.target_ref_name = "refs/heads/main"
+
+        mock_git_client.get_pull_requests.return_value = [mock_pr]
+
+        # Mock iterations to raise exception
+        mock_git_client.get_pull_request_iterations.side_effect = Exception("API Error")
+
+        # Call function
+        result = fetch_recent_prs(
+            connection=mock_connection,
+            project="TestProject",
+            repository_id="TestRepo",
+        )
+
+        # Should still return PR but with empty files
+        assert len(result) == 1
+        assert result[0]["pr_id"] == 123
+        assert result[0]["files"] == []

@@ -46,6 +46,17 @@ class KustoSchemaData(BaseModel):
     discovered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class CodePattern(BaseModel):
+    """Individual code pattern extracted from PR analysis."""
+
+    pattern_type: str = Field(..., description="Type of pattern (naming, code_structure, import, etc.)")
+    pattern_value: str = Field(..., description="The actual pattern or template")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score (0.0 to 1.0)")
+    occurrences: int = Field(default=0, description="Number of times pattern was observed")
+    examples: List[str] = Field(default_factory=list, description="Example instances of the pattern")
+    description: Optional[str] = Field(default=None, description="Human-readable description")
+
+
 class PatternData(BaseModel):
     """Code patterns extracted from historical PRs."""
 

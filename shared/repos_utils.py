@@ -356,3 +356,119 @@ def get_pull_request_status(
             error=str(e),
         )
         raise
+
+
+def fetch_recent_prs(
+    connection: Connection,
+    project: str,
+    repository_id: str,
+    limit: int = 20,
+    include_detector_only: bool = True,
+) -> list[Dict[str, Any]]:
+    """
+    Fetch recent merged PRs from Azure Repos.
+
+    Args:
+        connection: Authenticated Azure DevOps connection
+        project: Project name
+        repository_id: Repository ID or name
+        limit: Maximum number of PRs to fetch (default: 20)
+        include_detector_only: If True, filter to detector-related PRs (default: True)
+
+    Returns:
+        List of PR dictionaries with id, title, description, files, and metadata
+
+    Raises:
+        Exception: If fetching PRs fails
+    """
+    git_client = connection.clients.get_git_client()
+
+    try:
+        # Get completed (merged) PRs
+        prs = git_client.get_pull_requests(
+            repository_id=repository_id,
+            project=project,
+            search_criteria={
+                "status": "completed",  # Only merged PRs
+                "includeLinks": True,
+            },
+        )
+
+        # Convert to dictionary format
+        pr_list = []
+        for pr in prs[:limit]:  # Limit to requested number
+            # Filter to detector-related PRs if requested
+            if include_detector_only:
+                title_lower = pr.title.lower()
+                description_lower = (pr.description or "").lower()
+                if not any(keyword in title_lower or keyword in description_lower
+                          for keyword in ["detector", "detect", "etw", "rule"]):
+                    continue
+
+            # Get PR changes/files
+            try:
+                iterations = git_client.get_pull_request_iterations(
+                    pull_request_id=pr.pull_request_id,
+                    repository_id=repository_id,
+                    project=project,
+                )
+
+                # Get files from the latest iteration
+                files = []
+                if iterations:
+                    latest_iteration = iterations[-1]
+                    changes = git_client.get_pull_request_iteration_changes(
+                        pull_request_id=pr.pull_request_id,
+                        iteration_id=latest_iteration.id,
+                        repository_id=repository_id,
+                        project=project,
+                    )
+
+                    if changes and hasattr(changes, "change_entries"):
+                        files = [
+                            {
+                                "path": change.item.path if hasattr(change, "item") else "",
+                                "change_type": change.change_type if hasattr(change, "change_type") else "unknown",
+                            }
+                            for change in changes.change_entries
+                        ]
+
+            except Exception as e:
+                logger.warning(
+                    "Failed to get PR files",
+                    pr_id=pr.pull_request_id,
+                    error=str(e),
+                )
+                files = []
+
+            pr_data = {
+                "pr_id": pr.pull_request_id,
+                "title": pr.title,
+                "description": pr.description or "",
+                "created_by": pr.created_by.display_name if pr.created_by else "Unknown",
+                "created_date": pr.creation_date.isoformat() if pr.creation_date else None,
+                "merge_status": pr.merge_status,
+                "files": files,
+                "source_branch": pr.source_ref_name,
+                "target_branch": pr.target_ref_name,
+            }
+            pr_list.append(pr_data)
+
+        logger.info(
+            "Fetched recent PRs",
+            project=project,
+            repository=repository_id,
+            total_fetched=len(pr_list),
+            limit=limit,
+        )
+
+        return pr_list
+
+    except Exception as e:
+        logger.error(
+            "Failed to fetch recent PRs",
+            project=project,
+            repository=repository_id,
+            error=str(e),
+        )
+        raise
