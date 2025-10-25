@@ -11,6 +11,7 @@ import os
 from typing import Any, Annotated
 from uuid import uuid4
 from pathlib import Path
+from datetime import datetime
 
 from agent_framework import (
     WorkflowBuilder,
@@ -442,6 +443,103 @@ async def approval_gate_executor(
     await ctx.send_message(workflow_data)
 
 
+async def _poll_pr_merge_status(
+    workflow_data: dict[str, Any],
+    poll_interval_seconds: int = 30,
+    max_wait_minutes: int = 60,
+) -> tuple[bool, str]:
+    """
+    Poll PR status until merged or timeout.
+
+    Args:
+        workflow_data: Workflow state with PR details
+        poll_interval_seconds: Seconds between polls (default: 30)
+        max_wait_minutes: Maximum minutes to wait (default: 60)
+
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    from shared.repos_utils import get_pull_request_status
+    from shared.auth import get_auth_manager
+    from shared.config import get_config
+    from datetime import datetime, timedelta
+
+    pr_id = workflow_data.get("pr_id")
+    if not pr_id:
+        return False, "No PR ID found in workflow data"
+
+    config = get_config()
+
+    # Validate configuration
+    if not config.azure.azure_devops_org:
+        return False, "Azure DevOps organization not configured"
+    if not config.azure.azure_devops_project:
+        return False, "Azure DevOps project not configured"
+    if not config.azure.azure_devops_repo:
+        return False, "Azure DevOps repository not configured"
+
+    auth_mgr = get_auth_manager(use_default_credential=True)
+    connection = auth_mgr.get_azure_devops_connection(config.azure.azure_devops_org)
+
+    max_polls = (max_wait_minutes * 60) // poll_interval_seconds
+    start_time = datetime.now()
+    timeout_time = start_time + timedelta(minutes=max_wait_minutes)
+
+    print(f"\n📊 Monitoring PR #{pr_id} for merge status")
+    print(f"   Poll interval: {poll_interval_seconds}s")
+    print(f"   Max wait time: {max_wait_minutes} minutes")
+    print(f"   Timeout at: {timeout_time.strftime('%H:%M:%S')}\n")
+
+    poll_count = 0
+    retry_delay = poll_interval_seconds
+
+    while poll_count < max_polls:
+        poll_count += 1
+        current_time = datetime.now()
+
+        try:
+            # Get PR status
+            pr_status = get_pull_request_status(
+                connection,
+                config.azure.azure_devops_project,
+                config.azure.azure_devops_repo,
+                pr_id,
+            )
+
+            status = pr_status["status"]
+            is_completed = pr_status["is_completed"]
+            is_abandoned = pr_status["is_abandoned"]
+
+            print(f"   [{current_time.strftime('%H:%M:%S')}] Poll {poll_count}/{max_polls}: Status = {status}")
+
+            # Check if PR is merged
+            if is_completed:
+                elapsed = (current_time - start_time).total_seconds() / 60
+                return True, f"PR merged successfully after {elapsed:.1f} minutes"
+
+            # Check if PR was abandoned
+            if is_abandoned:
+                return False, "PR was abandoned - deployment cancelled"
+
+            # Wait before next poll (with exponential backoff for retries)
+            if poll_count < max_polls:
+                await asyncio.sleep(retry_delay)
+
+        except Exception as e:
+            # Exponential backoff on errors
+            retry_delay = min(retry_delay * 2, 300)  # Max 5 minutes
+            print(f"   ⚠️  Error polling PR status: {e}")
+            print(f"   Retrying in {retry_delay}s with exponential backoff...")
+
+            if poll_count < max_polls:
+                await asyncio.sleep(retry_delay)
+            retry_delay = poll_interval_seconds  # Reset on success
+
+    # Timeout reached
+    elapsed = (datetime.now() - start_time).total_seconds() / 60
+    return False, f"Deployment not detected after {elapsed:.1f} minutes. Please verify manually."
+
+
 @executor(id="deployment_verification")
 async def deployment_verification_executor(
     workflow_data: dict[str, Any],
@@ -449,17 +547,288 @@ async def deployment_verification_executor(
 ) -> None:
     """
     Step 6: Deployment Verification
-    Monitors PR merge and deployment status.
+
+    Monitors PR merge status and verifies successful deployment.
+    Polls Azure Repos every 30 seconds with 60 minute timeout.
+    Implements exponential backoff for API retries.
     """
     print("\n✓ [6/7] Deployment Verification")
-    print("    Monitoring PR merge status...")
-    print("    Verifying deployment...")
+    print("=" * 70)
 
-    workflow_data["pr_merged"] = True
-    workflow_data["deployment_detected"] = True
+    # Check if approval was granted
+    if not workflow_data.get("approved", False):
+        print("\n   ⚠️  PR was not approved - skipping deployment verification")
+        workflow_data["pr_merged"] = False
+        workflow_data["deployment_detected"] = False
+        workflow_data["deployment_status"] = "skipped_no_approval"
+        workflow_data["current_step"] = "deployment_verification"
+        await ctx.send_message(workflow_data)
+        return
+
+    # Poll for PR merge status
+    success, message = await _poll_pr_merge_status(workflow_data)
+
+    # Update workflow data
+    workflow_data["pr_merged"] = success
+    workflow_data["deployment_detected"] = success
+    workflow_data["deployment_status"] = "completed" if success else "timeout"
+    workflow_data["deployment_message"] = message
+    workflow_data["deployment_timestamp"] = datetime.now().isoformat()
     workflow_data["current_step"] = "deployment_verification"
 
+    # Present results
+    print("\n" + "=" * 70)
+    if success:
+        print(f"\n   ✅ {message}")
+        print(f"   Timestamp: {workflow_data['deployment_timestamp']}")
+    else:
+        print(f"\n   ⚠️  {message}")
+
+    print()
+
     await ctx.send_message(workflow_data)
+
+
+# ============================
+# Results Analysis Components
+# ============================
+
+
+async def _fetch_and_analyze_results(
+    workflow_data: dict[str, Any]
+) -> tuple[dict[str, Any], str]:
+    """
+    Fetch detector results from Kusto and analyze effectiveness.
+
+    Args:
+        workflow_data: Workflow state with detector info and deployment timestamp
+
+    Returns:
+        Tuple of (metrics_dict, summary_message)
+    """
+    from datetime import datetime, timedelta
+
+    config = get_config()
+
+    # Skip if deployment was not successful
+    if not workflow_data.get("deployment_detected", False):
+        return {
+            "status": "skipped",
+            "reason": "deployment_not_detected",
+        }, "Deployment was not detected - skipping results analysis"
+
+    # Check Kusto configuration
+    if not config.azure.kusto_cluster_url or not config.azure.kusto_database_name:
+        print("    ⚠️  Kusto not configured - using placeholder metrics")
+        return {
+            "status": "placeholder",
+            "total_events": 42,
+            "error_count": 0,
+            "unique_hosts": 5,
+            "error_rate": 0.0,
+        }, "Kusto not configured - showing placeholder metrics: 42 events detected, 0 errors, 5 unique hosts"
+
+    # Extract detector information
+    rule_id = workflow_data.get("rule_id", "unknown")
+    detector_name = f"detector_{rule_id}"
+
+    # Calculate time window (1 hour from deployment or current time)
+    deployment_timestamp = workflow_data.get("deployment_timestamp")
+    if deployment_timestamp:
+        start_time = datetime.fromisoformat(deployment_timestamp)
+    else:
+        start_time = datetime.now() - timedelta(hours=1)
+
+    try:
+        # Initialize Kusto client
+        auth_mgr = get_auth_manager(use_default_credential=True)
+        kusto_client = create_kusto_client(
+            cluster_url=config.azure.kusto_cluster_url,
+            database=config.azure.kusto_database_name,
+            auth_manager=auth_mgr,
+        )
+
+        # Load and execute query template
+        query = kusto_client.load_query_template(
+            "fetch_detector_results",
+            params={
+                "detector_name": detector_name,
+                "start_time": start_time.isoformat(),
+            }
+        )
+
+        print(f"    Querying Kusto for detector: {detector_name}")
+        print(f"    Time window: {start_time.isoformat()} to now")
+
+        results = kusto_client.execute_query(query, timeout_seconds=60)
+
+        # Analyze results
+        if not results:
+            return {
+                "status": "no_data",
+                "total_events": 0,
+                "error_count": 0,
+                "unique_hosts": 0,
+                "error_rate": 0.0,
+            }, f"No detector results found for '{detector_name}' since {start_time.strftime('%Y-%m-%d %H:%M:%S')}"
+
+        # Aggregate metrics from results
+        total_events = sum(row.get("EventCount", 0) for row in results)
+        error_count = sum(row.get("ErrorCount", 0) for row in results)
+        unique_hosts = max((row.get("UniqueHosts", 0) for row in results), default=0)
+        error_rate = (error_count / total_events * 100) if total_events > 0 else 0.0
+
+        metrics = {
+            "status": "success",
+            "total_events": total_events,
+            "error_count": error_count,
+            "unique_hosts": unique_hosts,
+            "error_rate": round(error_rate, 2),
+            "time_buckets": len(results),
+        }
+
+        # Generate summary message
+        summary = (
+            f"Detector found {total_events} events in the last hour "
+            f"across {unique_hosts} unique hosts. "
+        )
+
+        if error_count > 0:
+            summary += f"⚠️  {error_count} errors detected (error rate: {error_rate:.2f}%). "
+        else:
+            summary += "No errors detected. "
+
+        return metrics, summary
+
+    except Exception as e:
+        print(f"    ⚠️  Error querying Kusto: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+        }, f"Error fetching results: {str(e)}"
+
+
+# Define approval function for results confirmation
+@ai_function(approval_mode="always_require")
+def confirm_detector_results(
+    detector_name: Annotated[str, "The detector name"],
+    total_events: Annotated[int, "Total events detected"],
+    error_count: Annotated[int, "Number of errors"],
+    error_rate: Annotated[float, "Error rate percentage"],
+) -> str:
+    """
+    Confirm that detector results look acceptable.
+
+    This function requires explicit user confirmation that the detector
+    is working correctly before proceeding.
+    """
+    return "Detector results confirmed - workflow will continue"
+
+
+async def _handle_results_confirmation(
+    workflow_data: dict[str, Any],
+    metrics: dict[str, Any],
+    chat_client: OpenAIChatClient
+) -> bool:
+    """
+    Handle user confirmation of detector results using MAF's ChatAgent approval pattern.
+
+    Args:
+        workflow_data: Workflow state with detector info
+        metrics: Results metrics from Kusto analysis
+        chat_client: OpenAI chat client for agent
+
+    Returns:
+        True if confirmed, False otherwise
+    """
+    # Present results details
+    print("\n" + "=" * 70)
+    print("\n   📊 DETECTOR RESULTS ANALYSIS")
+    print("   " + "=" * 68)
+
+    rule_id = workflow_data.get("rule_id", "unknown")
+    detector_name = f"detector_{rule_id}"
+
+    print(f"\n   Detector: {detector_name}")
+    print(f"   Rule ID: {rule_id}")
+
+    if metrics.get("status") == "success":
+        print(f"\n   Total Events: {metrics['total_events']}")
+        print(f"   Error Count: {metrics['error_count']}")
+        print(f"   Error Rate: {metrics['error_rate']}%")
+        print(f"   Unique Hosts: {metrics['unique_hosts']}")
+        print(f"   Time Buckets: {metrics['time_buckets']} (5-minute intervals)")
+    elif metrics.get("status") == "placeholder":
+        print(f"\n   Total Events: {metrics['total_events']} (placeholder)")
+        print(f"   Error Count: {metrics['error_count']}")
+        print(f"   Unique Hosts: {metrics['unique_hosts']}")
+    elif metrics.get("status") == "no_data":
+        print("\n   Status: No data found")
+        print("   This may be expected if the detector hasn't triggered yet.")
+    else:
+        print(f"\n   Status: {metrics.get('status', 'unknown')}")
+
+    print("\n" + "=" * 70)
+
+    # Check for auto-confirmation override (for testing/CI)
+    auto_confirm = os.getenv("MAF_AUTO_CONFIRM_RESULTS", "false").lower() == "true"
+    if auto_confirm:
+        print("\n   ✓ Auto-confirming results (MAF_AUTO_CONFIRM_RESULTS=true)")
+        return True
+
+    # Create ChatAgent with approval-required function
+    async with ChatAgent(
+        chat_client=chat_client,
+        name="ResultsConfirmationAgent",
+        instructions=f"""You are a detector results confirmation assistant.
+
+Your task is to help the user confirm whether the detector results look acceptable.
+
+Detector: {detector_name}
+Metrics: {metrics}
+
+The user needs to review these results and decide if they want to proceed.
+Call the confirm_detector_results function to request user confirmation.""",
+        tools=[confirm_detector_results]
+    ) as agent:
+        # Initial query to trigger confirmation request
+        query = f"""Please confirm the detector results for '{detector_name}'.
+
+The detector detected {metrics.get('total_events', 0)} events with an error rate of {metrics.get('error_rate', 0)}%.
+
+Do the results look acceptable?"""
+
+        result = await agent.run(query)
+
+        # Process confirmation requests using MAF pattern
+        while len(result.user_input_requests) > 0:
+            new_inputs: list[ChatMessage] = []
+
+            for user_input_needed in result.user_input_requests:
+                # Add confirmation request to context
+                new_inputs.append(ChatMessage(role="assistant", contents=[user_input_needed]))
+
+                # Get user confirmation
+                user_input = await asyncio.to_thread(
+                    input, "\n   Do the results look correct? Type 'yes' to proceed or 'no' to investigate: "
+                )
+
+                confirmed = user_input.strip().lower() in ['y', 'yes']
+
+                # Add confirmation response
+                new_inputs.append(
+                    ChatMessage(role="user", contents=[
+                        user_input_needed.create_response(confirmed)
+                    ])
+                )
+
+                return confirmed
+
+            # Continue with confirmation context
+            result = await agent.run(new_inputs)
+
+        # Default to rejection for safety
+        return False
 
 
 @executor(id="results_analysis")
@@ -469,16 +838,44 @@ async def results_analysis_executor(
 ) -> None:
     """
     Step 7: Results Analysis
-    Queries Kusto for detector results and analyzes effectiveness.
+    Queries Kusto for detector results, analyzes effectiveness, and prompts user for confirmation.
+    Uses MAF ChatAgent approval pattern for human-in-the-loop confirmation.
     """
     print("\n✓ [7/7] Results Analysis")
-    print("    Fetching detector results from Kusto...")
-    print("    Analyzing detector effectiveness...")
+    print("    Initializing Results Analysis...")
 
-    workflow_data["events_detected"] = 42
-    workflow_data["error_rate"] = 0.0
-    workflow_data["results_acceptable"] = True
+    # Fetch and analyze results from Kusto
+    metrics, summary = await _fetch_and_analyze_results(workflow_data)
+
+    print(f"\n    {summary}")
+
+    # Update workflow data with metrics
+    workflow_data["results_metrics"] = metrics
+    workflow_data["results_summary"] = summary
+    workflow_data["events_detected"] = metrics.get("total_events", 0)
+    workflow_data["error_rate"] = metrics.get("error_rate", 0.0)
     workflow_data["current_step"] = "results_analysis"
+
+    # If deployment was skipped, skip confirmation
+    if metrics.get("status") == "skipped":
+        workflow_data["results_acceptable"] = False
+        workflow_data["results_confirmed"] = False
+        print("\n    ⚠️  Skipping user confirmation - deployment was not successful")
+        await ctx.yield_output(workflow_data)
+        return
+
+    # Handle user confirmation using MAF pattern
+    chat_client = OpenAIChatClient()
+    confirmed = await _handle_results_confirmation(workflow_data, metrics, chat_client)
+
+    # Update workflow data
+    workflow_data["results_acceptable"] = confirmed
+    workflow_data["results_confirmed"] = confirmed
+
+    if confirmed:
+        print("\n    ✅ Results confirmed by user - workflow complete")
+    else:
+        print("\n    ⚠️  Results not confirmed - user should investigate")
 
     # Final output - yield the complete workflow data
     await ctx.yield_output(workflow_data)
