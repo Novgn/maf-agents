@@ -25,6 +25,7 @@ from agent_framework import (
     ai_function,
     AgentRunResponse,
 )
+from agent_framework._workflows._edge import Case, Default
 from agent_framework.azure import AzureOpenAIChatClient
 from typing_extensions import Never
 
@@ -40,8 +41,54 @@ checkpoint_dir.mkdir(exist_ok=True)
 checkpoint_storage = FileCheckpointStorage(checkpoint_dir)
 
 
-# Define the 7 workflow agents as MAF executors
+# Define the 8 workflow agents as MAF executors
 # Each executor represents a step in the detector development workflow
+
+# Condition function for switch-case routing
+def is_successful(message: dict[str, Any]) -> bool:
+    """
+    Check if the current step was successful.
+
+    Returns True if status is "success", False otherwise.
+    When False, the workflow routes to the failure handler.
+    """
+    return message.get("status") == "success"
+
+
+@executor(id="workflow_failure_handler")
+async def workflow_failure_handler(
+    workflow_data: dict[str, Any],
+    ctx: WorkflowContext[Never, dict[str, Any]]
+) -> None:
+    """
+    Workflow Failure Handler - Terminal executor for failed workflows.
+
+    This executor is called when any step fails. It outputs the final state
+    with error information and terminates the workflow.
+    """
+    print("\n" + "="*70)
+    print("❌ WORKFLOW FAILED")
+    print("="*70)
+
+    failed_step = workflow_data.get("current_step", "unknown")
+    error_message = workflow_data.get("error_message", "No error message provided")
+
+    print(f"\n   Failed at step: {failed_step}")
+    print(f"   Error: {error_message}")
+    print(f"\n   Workflow ID: {workflow_data.get('workflow_id', 'N/A')}")
+    print(f"   Provider GUID: {workflow_data.get('provider_guid', 'N/A')}")
+    print(f"   Rule ID: {workflow_data.get('rule_id', 'N/A')}")
+    print("\n" + "="*70)
+    print("\n💾 Checkpoint saved - you can debug or restart from this point")
+    print()
+
+    # Mark as final failure
+    workflow_data["workflow_status"] = "failed"
+    workflow_data["workflow_end_time"] = datetime.now().isoformat()
+
+    # Yield final output
+    await ctx.yield_output(workflow_data)
+
 
 @executor(id="etw_input_collection")
 async def etw_input_collection_executor(
@@ -53,17 +100,20 @@ async def etw_input_collection_executor(
     Uses the ETW Input Agent to collect and validate providerGuid and ruleId
     through a conversational interface.
     """
-    print("\n✓ [1/7] ETW Input Collection (Conversational Agent)")
+    print("\n✓ [1/8] ETW Input Collection (Conversational Agent)")
     print("    Initializing ETW Input Collection Agent...")
 
     # Create the ETW Input Agent
     agent = await create_etw_input_agent()
 
-    # Check if data was pre-populated (for automation) or needs conversational collection
-    if input_data and "provider_guid" in input_data and "rule_id" in input_data:
+    # Check for automation flag - only skip conversation if explicitly requested
+    use_automation = input_data.get("_use_automation", False) if input_data else False
+
+    if use_automation and input_data and "provider_guid" in input_data and "rule_id" in input_data:
+        # Automation mode: use pre-populated data
         provider_guid = input_data["provider_guid"]
         rule_id = input_data["rule_id"]
-        print(f"    Using pre-populated input data")
+        print(f"    Using pre-populated input data (automation mode)")
 
         # Validate pre-populated data using the agent
         etw_input = await agent.collect_inputs(
@@ -71,8 +121,10 @@ async def etw_input_collection_executor(
             rule_id=rule_id
         )
     else:
-        # Interactive conversational collection
-        print("\n    Starting conversational collection...")
+        # Default: Interactive conversational collection
+        print("\n" + "="*70)
+        print("📝 Please provide ETW detector information")
+        print("="*70)
         etw_input = await agent.collect_inputs()
 
     # Build workflow data
@@ -81,10 +133,12 @@ async def etw_input_collection_executor(
         "rule_id": etw_input.rule_id,
         "workflow_id": input_data.get("workflow_id", str(uuid4())) if input_data else str(uuid4()),
         "current_step": "etw_input_collection",
+        "status": "success",
     }
 
-    print(f"    ✓ Provider GUID: {etw_input.provider_guid}")
+    print(f"\n    ✓ Provider GUID: {etw_input.provider_guid}")
     print(f"    ✓ Rule ID: {etw_input.rule_id}")
+    print(f"    ✓ Status: Success")
 
     await ctx.send_message(etw_data)
 
@@ -99,66 +153,76 @@ async def schema_discovery_executor(
     Uses the Schema Discovery Agent to query Kusto for ETW schema
     and existing detectors through a conversational interface.
     """
-    print("\n✓ [2/7] Schema Discovery (Conversational Agent)")
+    print("\n✓ [2/8] Schema Discovery (Conversational Agent)")
     print("    Initializing Schema Discovery Agent...")
 
     config = get_config()
 
     # Initialize Kusto client if configured
-    if config.azure.kusto_cluster_url and config.azure.kusto_database_name:
-        try:
-            auth_mgr = get_auth_manager(use_default_credential=True)
-            kusto_client = create_kusto_client(
-                cluster_url=config.azure.kusto_cluster_url,
-                database=config.azure.kusto_database_name,
-                auth_manager=auth_mgr,
-            )
+    if not config.azure.kusto_cluster_url or not config.azure.kusto_database_name:
+        print("    ❌ Kusto not configured - cannot discover schema")
+        print("    Please configure KUSTO_CLUSTER_URL and KUSTO_DATABASE_NAME")
+        etw_data["current_step"] = "schema_discovery_failed"
+        etw_data["status"] = "failed"
+        etw_data["error_message"] = "Kusto cluster not configured"
+        await ctx.send_message(etw_data)
+        return
 
-            # Create the Schema Discovery Agent
-            agent = await create_schema_discovery_agent(
-                kusto_client=kusto_client
-            )
+    try:
+        auth_mgr = get_auth_manager(use_default_credential=True)
+        kusto_client = create_kusto_client(
+            cluster_url=config.azure.kusto_cluster_url,
+            database=config.azure.kusto_database_name,
+            auth_manager=auth_mgr,
+        )
 
-            # Run schema discovery
-            schema_data = await agent.discover_schema(
-                provider_guid=etw_data["provider_guid"],
-                rule_id=etw_data["rule_id"]
-            )
+        # Create the Schema Discovery Agent
+        agent = await create_schema_discovery_agent(
+            kusto_client=kusto_client
+        )
 
-            print(f"    ✓ Schema fields discovered: {len(schema_data.schema_fields)}")
-            print(f"    ✓ Existing detectors found: {len(schema_data.existing_detectors)}")
+        # Run schema discovery
+        schema_data = await agent.discover_schema(
+            provider_guid=etw_data["provider_guid"],
+            rule_id=etw_data["rule_id"]
+        )
 
-            # Convert to dict for workflow state
-            etw_data["schema_fields"] = [
-                {
-                    "FieldName": field.name,
-                    "DataType": field.data_type,
-                    "Description": field.description
-                }
-                for field in schema_data.schema_fields
-            ]
-            etw_data["existing_detectors"] = schema_data.existing_detectors
+        # Check if we got meaningful data
+        if len(schema_data.schema_fields) == 0:
+            print(f"    ❌ No schema fields found for provider GUID")
+            print(f"    Please verify the provider GUID and Kusto tables exist")
+            etw_data["current_step"] = "schema_discovery_failed"
+            etw_data["status"] = "failed"
+            etw_data["error_message"] = "No schema fields found in Kusto"
+            await ctx.send_message(etw_data)
+            return
 
-        except Exception as e:
-            print(f"    ⚠️  Schema discovery failed: {str(e)}, using placeholder data")
-            etw_data["schema_fields"] = [
-                {"FieldName": "EventId", "DataType": "int", "Description": "Event ID"},
-                {"FieldName": "Timestamp", "DataType": "datetime", "Description": "Event timestamp"},
-                {"FieldName": "Message", "DataType": "string", "Description": "Event message"},
-            ]
-            etw_data["existing_detectors"] = []
-    else:
-        print("    ⚠️  Kusto not configured, using placeholder data")
+        print(f"    ✓ Schema fields discovered: {len(schema_data.schema_fields)}")
+        print(f"    ✓ Existing detectors found: {len(schema_data.existing_detectors)}")
+
+        # Convert to dict for workflow state
         etw_data["schema_fields"] = [
-            {"FieldName": "EventId", "DataType": "int", "Description": "Event ID"},
-            {"FieldName": "Timestamp", "DataType": "datetime", "Description": "Event timestamp"},
-            {"FieldName": "Message", "DataType": "string", "Description": "Event message"},
+            {
+                "FieldName": field.name,
+                "DataType": field.data_type,
+                "Description": field.description
+            }
+            for field in schema_data.schema_fields
         ]
-        etw_data["existing_detectors"] = []
+        etw_data["existing_detectors"] = schema_data.existing_detectors
+        etw_data["current_step"] = "schema_discovery"
+        etw_data["status"] = "success"
+        print(f"    ✓ Status: Success")
 
-    etw_data["current_step"] = "schema_discovery"
+        await ctx.send_message(etw_data)
 
-    await ctx.send_message(etw_data)
+    except Exception as e:
+        print(f"    ❌ Schema discovery failed: {str(e)}")
+        print(f"    Please check Kusto configuration and table names")
+        etw_data["current_step"] = "schema_discovery_failed"
+        etw_data["status"] = "failed"
+        etw_data["error_message"] = str(e)
+        await ctx.send_message(etw_data)
 
 
 @executor(id="code_generator")
@@ -170,7 +234,7 @@ async def code_generator_executor(
     Step 3: Code Generator
     Analyzes historical PRs and generates detector code.
     """
-    print("\n✓ [3/7] Code Generator")
+    print("\n✓ [3/8] Code Generator")
     print("    Analyzing historical PR patterns...")
     print("    Generating detector code...")
 
@@ -179,6 +243,8 @@ async def code_generator_executor(
         "test_file": f"test_detector_{workflow_data['rule_id']}.py",
     }
     workflow_data["current_step"] = "code_generator"
+    workflow_data["status"] = "success"
+    print(f"    ✓ Status: Success")
 
     await ctx.send_message(workflow_data)
 
@@ -192,17 +258,17 @@ async def pr_creation_executor(
     Step 4: PR Creation
     Creates branch, commits code, and submits PR to Azure Repos using Azure DevOps SDK directly.
     """
-    print("\n✓ [4/7] PR Creation")
+    print("\n✓ [4/8] PR Creation")
 
     config = get_config()
 
     # Check if Azure DevOps is configured
     if not config.azure.azure_devops_org or not config.azure.azure_devops_project or not config.azure.azure_devops_repo:
-        print("    ⚠️  Azure DevOps not configured, using mock PR creation")
-        workflow_data["pr_url"] = f"https://dev.azure.com/org/project/_git/repo/pullrequest/12345"
-        workflow_data["pr_id"] = 12345
-        workflow_data["branch_name"] = f"detector/{workflow_data['rule_id']}"
-        workflow_data["current_step"] = "pr_creation"
+        print("    ❌ Azure DevOps not configured - cannot create PR")
+        print("    Please configure AZURE_DEVOPS_ORG, AZURE_DEVOPS_PROJECT, and AZURE_DEVOPS_REPO")
+        workflow_data["current_step"] = "pr_creation_failed"
+        workflow_data["status"] = "failed"
+        workflow_data["error_message"] = "Azure DevOps not configured"
         await ctx.send_message(workflow_data)
         return
 
@@ -276,17 +342,19 @@ Generated by maf-agents automated workflow.
         workflow_data["branch_name"] = branch_name
         workflow_data["commit_id"] = commit_result["commit_id"]
         workflow_data["current_step"] = "pr_creation"
+        workflow_data["status"] = "success"
+        print(f"    ✓ Status: Success")
+
+        await ctx.send_message(workflow_data)
 
     except Exception as e:
         print(f"    ❌ PR creation failed: {str(e)}")
-        print("    Using mock PR data for workflow continuation")
-        workflow_data["pr_url"] = f"https://dev.azure.com/org/project/_git/repo/pullrequest/12345"
-        workflow_data["pr_id"] = 12345
-        workflow_data["branch_name"] = f"detector/{workflow_data['rule_id']}"
-        workflow_data["current_step"] = "pr_creation"
-        workflow_data["pr_creation_error"] = str(e)
+        print(f"    Please check Azure DevOps configuration and permissions")
+        workflow_data["current_step"] = "pr_creation_failed"
+        workflow_data["status"] = "failed"
+        workflow_data["error_message"] = str(e)
 
-    await ctx.send_message(workflow_data)
+        await ctx.send_message(workflow_data)
 
 
 # Define approval function for PR deployment
@@ -426,7 +494,7 @@ async def approval_gate_executor(
     This is a critical human-in-the-loop control point where users
     review the generated PR before allowing the workflow to continue.
     """
-    print("\n✓ [5/7] User Approval Gate")
+    print("\n✓ [5/8] User Approval Gate")
     print("=" * 70)
 
     # Create chat client for approval agent
@@ -438,7 +506,13 @@ async def approval_gate_executor(
     # Update workflow data
     workflow_data["approved"] = approved
     workflow_data["approval_status"] = "approved" if approved else "rejected"
-    workflow_data["current_step"] = "approval_gate"
+    workflow_data["current_step"] = "approval_gate" if approved else "approval_gate_rejected"
+    workflow_data["status"] = "success" if approved else "failed"
+
+    if approved:
+        print(f"    ✓ Status: Approved")
+    else:
+        print(f"    ❌ Status: Rejected - workflow will stop")
 
     # Send message to workflow
     await ctx.send_message(workflow_data)
@@ -553,16 +627,18 @@ async def deployment_verification_executor(
     Polls Azure Repos every 30 seconds with 60 minute timeout.
     Implements exponential backoff for API retries.
     """
-    print("\n✓ [6/7] Deployment Verification")
+    print("\n✓ [6/8] Deployment Verification")
     print("=" * 70)
 
-    # Check if approval was granted
+    # Check if approval was granted (this should not happen with conditional edges)
     if not workflow_data.get("approved", False):
-        print("\n   ⚠️  PR was not approved - skipping deployment verification")
+        print("\n   ❌ PR was not approved - cannot verify deployment")
         workflow_data["pr_merged"] = False
         workflow_data["deployment_detected"] = False
         workflow_data["deployment_status"] = "skipped_no_approval"
-        workflow_data["current_step"] = "deployment_verification"
+        workflow_data["current_step"] = "deployment_verification_skipped"
+        workflow_data["status"] = "failed"
+        workflow_data["error_message"] = "PR was not approved"
         await ctx.send_message(workflow_data)
         return
 
@@ -575,15 +651,21 @@ async def deployment_verification_executor(
     workflow_data["deployment_status"] = "completed" if success else "timeout"
     workflow_data["deployment_message"] = message
     workflow_data["deployment_timestamp"] = datetime.now().isoformat()
-    workflow_data["current_step"] = "deployment_verification"
+    workflow_data["current_step"] = "deployment_verification" if success else "deployment_verification_failed"
+    workflow_data["status"] = "success" if success else "failed"
+
+    if not success:
+        workflow_data["error_message"] = message
 
     # Present results
     print("\n" + "=" * 70)
     if success:
         print(f"\n   ✅ {message}")
         print(f"   Timestamp: {workflow_data['deployment_timestamp']}")
+        print(f"   ✓ Status: Success")
     else:
-        print(f"\n   ⚠️  {message}")
+        print(f"\n   ❌ {message}")
+        print(f"   ❌ Status: Failed - workflow will stop")
 
     print()
 
@@ -857,26 +939,36 @@ async def results_analysis_executor(
     workflow_data["error_rate"] = metrics.get("error_rate", 0.0)
     workflow_data["current_step"] = "results_analysis"
 
-    # If deployment was skipped, skip confirmation
+    # If deployment was skipped, mark as failed
     if metrics.get("status") == "skipped":
         workflow_data["results_acceptable"] = False
         workflow_data["results_confirmed"] = False
-        print("\n    ⚠️  Skipping user confirmation - deployment was not successful")
+        workflow_data["status"] = "failed"
+        workflow_data["error_message"] = "Deployment was not successful"
+        print("\n    ❌ Skipping - deployment was not successful")
+        print(f"    ❌ Status: Failed - workflow will stop")
         await ctx.send_message(workflow_data)
         return
 
     # Handle user confirmation using MAF pattern
-    chat_client = AzureOpenAIChatClient()  # Use Azure OpenAI instead of OpenAI
+    chat_client = AzureOpenAIChatClient()
     confirmed = await _handle_results_confirmation(workflow_data, metrics, chat_client)
 
     # Update workflow data
     workflow_data["results_acceptable"] = confirmed
     workflow_data["results_confirmed"] = confirmed
+    workflow_data["status"] = "success" if confirmed else "failed"
+    workflow_data["current_step"] = "results_analysis" if confirmed else "results_analysis_rejected"
+
+    if not confirmed:
+        workflow_data["error_message"] = "Results not confirmed by user"
 
     if confirmed:
-        print("\n    ✅ Results confirmed by user - proceeding to production promotion")
+        print("\n    ✅ Results confirmed by user")
+        print(f"    ✓ Status: Success")
     else:
-        print("\n    ⚠️  Results not confirmed - user should investigate")
+        print("\n    ❌ Results not confirmed by user")
+        print(f"    ❌ Status: Failed - workflow will stop")
 
     # Send message to next executor
     await ctx.send_message(workflow_data)
@@ -976,11 +1068,13 @@ async def production_promotion_executor(
     print("\n✓ [8/8] Production Promotion")
     print("    Analyzing promotion patterns...")
 
-    # Check if results were confirmed
+    # Check if results were confirmed (should not happen with conditional edges)
     if not workflow_data.get("results_confirmed", False):
-        print("\n    ⚠️  Results not confirmed - skipping production promotion")
+        print("\n    ❌ Results not confirmed - cannot promote to production")
         workflow_data["promotion_status"] = "skipped_no_confirmation"
         workflow_data["current_step"] = "production_promotion_skipped"
+        workflow_data["status"] = "failed"
+        workflow_data["error_message"] = "Results not confirmed"
         await ctx.yield_output(workflow_data)
         return
 
@@ -988,9 +1082,11 @@ async def production_promotion_executor(
 
     # Check Azure DevOps configuration
     if not config.azure.azure_devops_org or not config.azure.azure_devops_project or not config.azure.azure_devops_repo:
-        print("    ⚠️  Azure DevOps not configured - skipping production promotion")
+        print("    ❌ Azure DevOps not configured - cannot create promotion PR")
         workflow_data["promotion_status"] = "skipped_no_config"
         workflow_data["current_step"] = "production_promotion_skipped"
+        workflow_data["status"] = "failed"
+        workflow_data["error_message"] = "Azure DevOps not configured"
         await ctx.yield_output(workflow_data)
         return
 
@@ -1109,6 +1205,7 @@ async def production_promotion_executor(
         workflow_data["promotion_status"] = "completed"
         workflow_data["promotion_patterns"] = patterns
         workflow_data["current_step"] = "production_promotion_complete"
+        workflow_data["status"] = "success"
 
         # Present results
         print("\n" + "=" * 70)
@@ -1123,13 +1220,16 @@ async def production_promotion_executor(
             print(f"     - {file_path}")
         print("\n" + "=" * 70)
         print("\n   🎉 Workflow Complete! Detector ready for production deployment.")
+        print(f"   ✓ Status: Success")
         print()
 
     except Exception as e:
-        print(f"\n    ⚠️  Error creating promotion PR: {e}")
+        print(f"\n    ❌ Error creating promotion PR: {e}")
         workflow_data["promotion_status"] = "failed"
         workflow_data["promotion_error"] = str(e)
         workflow_data["current_step"] = "production_promotion_failed"
+        workflow_data["status"] = "failed"
+        workflow_data["error_message"] = str(e)
 
     # Final output - workflow complete
     await ctx.yield_output(workflow_data)
@@ -1139,18 +1239,64 @@ async def build_detector_workflow():
     """
     Build the detector development workflow using MAF WorkflowBuilder.
 
-    This creates a sequential pipeline of 8 executors with checkpointing enabled.
+    This creates a sequential pipeline of 8 executors with conditional routing that
+    stops the workflow if any step fails. Checkpointing is enabled for recovery.
+
+    Each executor sets status="success" or status="failed", and conditional routing
+    ensures failed steps terminate the workflow.
     """
     workflow = (
         WorkflowBuilder()
         .set_start_executor(etw_input_collection_executor)
-        .add_edge(etw_input_collection_executor, schema_discovery_executor)
-        .add_edge(schema_discovery_executor, code_generator_executor)
-        .add_edge(code_generator_executor, pr_creation_executor)
-        .add_edge(pr_creation_executor, approval_gate_executor)
-        .add_edge(approval_gate_executor, deployment_verification_executor)
-        .add_edge(deployment_verification_executor, results_analysis_executor)
-        .add_edge(results_analysis_executor, production_promotion_executor)
+        .add_switch_case_edge_group(
+            etw_input_collection_executor,
+            [
+                Case(is_successful, schema_discovery_executor),
+                Default(workflow_failure_handler)
+            ]
+        )
+        .add_switch_case_edge_group(
+            schema_discovery_executor,
+            [
+                Case(is_successful, code_generator_executor),
+                Default(workflow_failure_handler)
+            ]
+        )
+        .add_switch_case_edge_group(
+            code_generator_executor,
+            [
+                Case(is_successful, pr_creation_executor),
+                Default(workflow_failure_handler)
+            ]
+        )
+        .add_switch_case_edge_group(
+            pr_creation_executor,
+            [
+                Case(is_successful, approval_gate_executor),
+                Default(workflow_failure_handler)
+            ]
+        )
+        .add_switch_case_edge_group(
+            approval_gate_executor,
+            [
+                Case(is_successful, deployment_verification_executor),
+                Default(workflow_failure_handler)
+            ]
+        )
+        .add_switch_case_edge_group(
+            deployment_verification_executor,
+            [
+                Case(is_successful, results_analysis_executor),
+                Default(workflow_failure_handler)
+            ]
+        )
+        .add_switch_case_edge_group(
+            results_analysis_executor,
+            [
+                Case(is_successful, production_promotion_executor),
+                Default(workflow_failure_handler)
+            ]
+        )
         .with_checkpointing(checkpoint_storage)  # Enable MAF checkpointing
         .build()
     )
@@ -1172,21 +1318,19 @@ async def main():
     # Build the workflow
     workflow = await build_detector_workflow()
     print("✓ Workflow built with Microsoft Agent Framework")
-    print("✓ Checkpoint persistence enabled (FileCheckpointStorage)\n")
+    print("✓ Checkpoint persistence enabled (FileCheckpointStorage)")
+    print("✓ Using conversational ETW input collection\n")
 
-    # Prepare input data
+    # Prepare minimal input data - conversation will collect provider_guid and rule_id
     workflow_id = str(uuid4())
     input_data = {
         "workflow_id": workflow_id,
-        "provider_guid": "12345678-1234-1234-1234-123456789012",
-        "rule_id": "test-detector-rule-1",
     }
 
     print(f"{'='*70}")
-    print(f"🚀 Starting Workflow")
+    print(f"🚀 Starting Detector Development Workflow")
     print(f"   Workflow ID: {workflow_id}")
-    print(f"   Provider GUID: {input_data['provider_guid']}")
-    print(f"   Rule ID: {input_data['rule_id']}")
+    print(f"   Mode: Interactive (Conversational)")
     print(f"{'='*70}")
 
     # Execute the workflow with streaming
