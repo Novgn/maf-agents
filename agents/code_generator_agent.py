@@ -10,7 +10,6 @@ import ast
 import re
 
 from agent_framework import ChatAgent
-from agent_framework.openai import OpenAIChatClient
 from agent_framework.azure import AzureOpenAIChatClient
 
 from shared.models import CodePattern, KustoSchemaField, GeneratedCodeData
@@ -27,20 +26,14 @@ class CodeGeneratorAgent:
     following learned patterns and conventions from historical PRs.
     """
 
-    def __init__(self, use_azure: bool = False):
+    def __init__(self):
         """
         Initialize the Code Generator Agent.
 
-        Args:
-            use_azure: If True, use AzureOpenAIChatClient; otherwise use OpenAIChatClient
+        Uses Azure OpenAI for LLM-based code generation.
         """
-        self.use_azure = use_azure
-
         # Create the chat client
-        if use_azure:
-            chat_client = AzureOpenAIChatClient()
-        else:
-            chat_client = OpenAIChatClient()
+        chat_client = AzureOpenAIChatClient()
 
         # Create the conversational agent for code generation
         self.agent = ChatAgent(
@@ -377,14 +370,11 @@ class {self._sanitize_class_name(rule_id)}Detector:
             return False
 
 
-async def create_code_generator_agent(use_azure: bool = False) -> CodeGeneratorAgent:
+async def create_code_generator_agent() -> CodeGeneratorAgent:
     """
     Factory function to create a Code Generator Agent.
 
-    Args:
-        use_azure: If True, use Azure OpenAI client; otherwise use OpenAI client
-
     Returns:
-        Configured CodeGeneratorAgent instance
+        Configured CodeGeneratorAgent instance using Azure OpenAI
     """
-    return CodeGeneratorAgent(use_azure=use_azure)
+    return CodeGeneratorAgent()

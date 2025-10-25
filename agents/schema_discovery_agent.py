@@ -8,7 +8,6 @@ and retrieve ETW schema definitions for a given provider GUID.
 from typing import Optional, List, Dict, Any
 
 from agent_framework import ChatAgent
-from agent_framework.openai import OpenAIChatClient
 from agent_framework.azure import AzureOpenAIChatClient
 
 from shared.models import KustoSchemaData, KustoSchemaField
@@ -26,23 +25,17 @@ class SchemaDiscoveryAgent:
     def __init__(
         self,
         kusto_client: KustoClientWrapper,
-        use_azure: bool = False
     ):
         """
         Initialize the Schema Discovery Agent.
 
         Args:
             kusto_client: Kusto client wrapper for executing queries
-            use_azure: If True, use AzureOpenAIChatClient; otherwise use OpenAIChatClient
         """
         self.kusto_client = kusto_client
-        self.use_azure = use_azure
 
         # Create the chat client
-        if use_azure:
-            chat_client = AzureOpenAIChatClient()
-        else:
-            chat_client = OpenAIChatClient()
+        chat_client = AzureOpenAIChatClient()
 
         # Create the conversational agent with tools
         # Note: We can't pass kusto_client directly to tools, so we'll use it in the methods
@@ -170,16 +163,14 @@ Please summarize what this means for the detector development."""
 
 async def create_schema_discovery_agent(
     kusto_client: KustoClientWrapper,
-    use_azure: bool = False
 ) -> SchemaDiscoveryAgent:
     """
     Factory function to create a Schema Discovery Agent.
 
     Args:
         kusto_client: Kusto client wrapper for executing queries
-        use_azure: If True, use Azure OpenAI client; otherwise use OpenAI client
 
     Returns:
-        Configured SchemaDiscoveryAgent instance
+        Configured SchemaDiscoveryAgent instance using Azure OpenAI
     """
-    return SchemaDiscoveryAgent(kusto_client=kusto_client, use_azure=use_azure)
+    return SchemaDiscoveryAgent(kusto_client=kusto_client)

@@ -23,14 +23,12 @@ class TestSchemaDiscoveryAgent:
         """Test agent initialization with OpenAI client."""
         mock_kusto_client = Mock(spec=KustoClientWrapper)
 
-        with patch("agents.schema_discovery_agent.OpenAIChatClient") as mock_client:
+        with patch("agents.schema_discovery_agent.AzureOpenAIChatClient") as mock_client:
             agent = SchemaDiscoveryAgent(
-                kusto_client=mock_kusto_client,
-                use_azure=False
+                kusto_client=mock_kusto_client
             )
 
             assert agent.kusto_client == mock_kusto_client
-            assert agent.use_azure is False
             mock_client.assert_called_once()
 
     @pytest.mark.asyncio
@@ -40,12 +38,10 @@ class TestSchemaDiscoveryAgent:
 
         with patch("agents.schema_discovery_agent.AzureOpenAIChatClient") as mock_client:
             agent = SchemaDiscoveryAgent(
-                kusto_client=mock_kusto_client,
-                use_azure=True
+                kusto_client=mock_kusto_client
             )
 
             assert agent.kusto_client == mock_kusto_client
-            assert agent.use_azure is True
             mock_client.assert_called_once()
 
     @pytest.mark.asyncio
@@ -67,8 +63,7 @@ class TestSchemaDiscoveryAgent:
 
         with patch("agents.schema_discovery_agent.OpenAIChatClient"):
             agent = SchemaDiscoveryAgent(
-                kusto_client=mock_kusto_client,
-                use_azure=False
+                kusto_client=mock_kusto_client
             )
 
             # Mock the ChatAgent
@@ -107,8 +102,7 @@ class TestSchemaDiscoveryAgent:
 
         with patch("agents.schema_discovery_agent.OpenAIChatClient"):
             agent = SchemaDiscoveryAgent(
-                kusto_client=mock_kusto_client,
-                use_azure=False
+                kusto_client=mock_kusto_client
             )
 
             # Mock the ChatAgent
@@ -135,8 +129,7 @@ class TestSchemaDiscoveryAgent:
 
         with patch("agents.schema_discovery_agent.OpenAIChatClient"):
             agent = SchemaDiscoveryAgent(
-                kusto_client=mock_kusto_client,
-                use_azure=False
+                kusto_client=mock_kusto_client
             )
 
             # Mock the ChatAgent
@@ -168,8 +161,7 @@ class TestSchemaDiscoveryAgent:
 
         with patch("agents.schema_discovery_agent.OpenAIChatClient"):
             agent = SchemaDiscoveryAgent(
-                kusto_client=mock_kusto_client,
-                use_azure=False
+                kusto_client=mock_kusto_client
             )
 
             # Mock the ChatAgent
@@ -199,8 +191,7 @@ class TestCreateSchemaDiscoveryAgent:
 
         with patch("agents.schema_discovery_agent.OpenAIChatClient"):
             agent = await create_schema_discovery_agent(
-                kusto_client=mock_kusto_client,
-                use_azure=False
+                kusto_client=mock_kusto_client
             )
 
             assert isinstance(agent, SchemaDiscoveryAgent)
@@ -214,8 +205,7 @@ class TestCreateSchemaDiscoveryAgent:
 
         with patch("agents.schema_discovery_agent.AzureOpenAIChatClient"):
             agent = await create_schema_discovery_agent(
-                kusto_client=mock_kusto_client,
-                use_azure=True
+                kusto_client=mock_kusto_client
             )
 
             assert isinstance(agent, SchemaDiscoveryAgent)

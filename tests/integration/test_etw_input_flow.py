@@ -22,7 +22,7 @@ class TestETWInputConversationalFlow:
         This simulates a user providing valid providerGuid and ruleId
         through the conversational interface.
         """
-        with patch("agents.etw_input_agent.OpenAIChatClient"), \
+        with patch("agents.etw_input_agent.AzureOpenAIChatClient"), \
              patch("agents.etw_input_agent.input") as mock_input:
 
             # Mock the ChatAgent
@@ -30,7 +30,7 @@ class TestETWInputConversationalFlow:
             mock_agent.run = AsyncMock(return_value="Mock conversational response")
 
             # Create the ETW Input Agent
-            agent = await create_etw_input_agent(use_azure=False)
+            agent = await create_etw_input_agent()
             agent.agent = mock_agent
 
             # Simulate user providing valid inputs
@@ -58,7 +58,7 @@ class TestETWInputConversationalFlow:
         This simulates a user making an error and then providing correct input
         after receiving helpful error messages.
         """
-        with patch("agents.etw_input_agent.OpenAIChatClient"), \
+        with patch("agents.etw_input_agent.AzureOpenAIChatClient"), \
              patch("agents.etw_input_agent.input") as mock_input:
 
             # Mock the ChatAgent
@@ -66,7 +66,7 @@ class TestETWInputConversationalFlow:
             mock_agent.run = AsyncMock(return_value="Mock error and retry response")
 
             # Create the ETW Input Agent
-            agent = await create_etw_input_agent(use_azure=False)
+            agent = await create_etw_input_agent()
             agent.agent = mock_agent
 
             # Simulate user providing invalid GUID first, then valid inputs
@@ -95,7 +95,7 @@ class TestETWInputConversationalFlow:
         This simulates a user skipping the rule ID and then providing it
         after receiving an error message.
         """
-        with patch("agents.etw_input_agent.OpenAIChatClient"), \
+        with patch("agents.etw_input_agent.AzureOpenAIChatClient"), \
              patch("agents.etw_input_agent.input") as mock_input:
 
             # Mock the ChatAgent
@@ -103,7 +103,7 @@ class TestETWInputConversationalFlow:
             mock_agent.run = AsyncMock(return_value="Mock error and retry response")
 
             # Create the ETW Input Agent
-            agent = await create_etw_input_agent(use_azure=False)
+            agent = await create_etw_input_agent()
             agent.agent = mock_agent
 
             # Simulate user providing valid GUID but empty rule ID first
@@ -129,7 +129,7 @@ class TestETWInputConversationalFlow:
         This simulates a user repeatedly providing invalid inputs and
         verifies that the agent fails gracefully after max attempts.
         """
-        with patch("agents.etw_input_agent.OpenAIChatClient"), \
+        with patch("agents.etw_input_agent.AzureOpenAIChatClient"), \
              patch("agents.etw_input_agent.input") as mock_input:
 
             # Mock the ChatAgent
@@ -137,7 +137,7 @@ class TestETWInputConversationalFlow:
             mock_agent.run = AsyncMock(return_value="Mock error response")
 
             # Create the ETW Input Agent
-            agent = await create_etw_input_agent(use_azure=False)
+            agent = await create_etw_input_agent()
             agent.agent = mock_agent
 
             # Simulate user providing invalid inputs repeatedly
@@ -159,9 +159,9 @@ class TestETWInputConversationalFlow:
         This simulates automated workflows where inputs are provided
         programmatically without user interaction.
         """
-        with patch("agents.etw_input_agent.OpenAIChatClient"):
+        with patch("agents.etw_input_agent.AzureOpenAIChatClient"):
             # Create the ETW Input Agent
-            agent = await create_etw_input_agent(use_azure=False)
+            agent = await create_etw_input_agent()
 
             # Provide pre-populated inputs
             result = await agent.collect_inputs(
@@ -182,9 +182,9 @@ class TestETWInputConversationalFlow:
         This tests that the agent can be properly integrated into the
         workflow and returns data in the expected format.
         """
-        with patch("agents.etw_input_agent.OpenAIChatClient"):
+        with patch("agents.etw_input_agent.AzureOpenAIChatClient"):
             # Create the ETW Input Agent
-            agent = await create_etw_input_agent(use_azure=False)
+            agent = await create_etw_input_agent()
 
             # Simulate workflow providing pre-populated data
             result = await agent.collect_inputs(
@@ -211,7 +211,7 @@ class TestETWInputConversationalFlow:
 
         This verifies that the validation is case-insensitive.
         """
-        with patch("agents.etw_input_agent.OpenAIChatClient"), \
+        with patch("agents.etw_input_agent.AzureOpenAIChatClient"), \
              patch("agents.etw_input_agent.input") as mock_input:
 
             # Mock the ChatAgent
@@ -219,7 +219,7 @@ class TestETWInputConversationalFlow:
             mock_agent.run = AsyncMock(return_value="Mock response")
 
             # Create the ETW Input Agent
-            agent = await create_etw_input_agent(use_azure=False)
+            agent = await create_etw_input_agent()
             agent.agent = mock_agent
 
             # Simulate user providing mixed case GUID

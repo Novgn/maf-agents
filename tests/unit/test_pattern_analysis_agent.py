@@ -20,8 +20,8 @@ class TestPatternAnalysisAgent:
     @pytest.mark.asyncio
     async def test_agent_initialization_with_openai(self):
         """Test agent initialization with OpenAI client."""
-        with patch("agents.pattern_analysis_agent.OpenAIChatClient"):
-            agent = PatternAnalysisAgent(use_azure=False)
+        with patch("agents.pattern_analysis_agent.AzureOpenAIChatClient"):
+            agent = PatternAnalysisAgent()
 
             assert agent.use_azure is False
             assert agent.agent is not None
@@ -29,8 +29,8 @@ class TestPatternAnalysisAgent:
     @pytest.mark.asyncio
     async def test_agent_initialization_with_azure(self):
         """Test agent initialization with Azure OpenAI client."""
-        with patch("agents.pattern_analysis_agent.AzureOpenAIChatClient"):
-            agent = PatternAnalysisAgent(use_azure=True)
+        with patch("agents.pattern_analysis_agent.AzureAzureOpenAIChatClient"):
+            agent = PatternAnalysisAgent()
 
             assert agent.use_azure is True
             assert agent.agent is not None
@@ -38,8 +38,8 @@ class TestPatternAnalysisAgent:
     @pytest.mark.asyncio
     async def test_analyze_pr_patterns_with_data(self):
         """Test pattern analysis with PR data."""
-        with patch("agents.pattern_analysis_agent.OpenAIChatClient"):
-            agent = PatternAnalysisAgent(use_azure=False)
+        with patch("agents.pattern_analysis_agent.AzureOpenAIChatClient"):
+            agent = PatternAnalysisAgent()
 
             # Mock the ChatAgent
             mock_agent = AsyncMock()
@@ -99,8 +99,8 @@ class TestPatternAnalysisAgent:
     @pytest.mark.asyncio
     async def test_analyze_pr_patterns_empty_data(self):
         """Test pattern analysis with empty PR data."""
-        with patch("agents.pattern_analysis_agent.OpenAIChatClient"):
-            agent = PatternAnalysisAgent(use_azure=False)
+        with patch("agents.pattern_analysis_agent.AzureOpenAIChatClient"):
+            agent = PatternAnalysisAgent()
 
             # Run analysis with empty data
             patterns = await agent.analyze_pr_patterns([])
@@ -113,8 +113,8 @@ class TestPatternAnalysisAgent:
     @pytest.mark.asyncio
     async def test_analyze_pr_patterns_with_focus_areas(self):
         """Test pattern analysis with specific focus areas."""
-        with patch("agents.pattern_analysis_agent.OpenAIChatClient"):
-            agent = PatternAnalysisAgent(use_azure=False)
+        with patch("agents.pattern_analysis_agent.AzureOpenAIChatClient"):
+            agent = PatternAnalysisAgent()
 
             # Mock the ChatAgent
             mock_agent = AsyncMock()
@@ -152,8 +152,8 @@ class TestPatternAnalysisAgent:
     @pytest.mark.asyncio
     async def test_parse_pattern_response_valid_json(self):
         """Test parsing valid JSON response."""
-        with patch("agents.pattern_analysis_agent.OpenAIChatClient"):
-            agent = PatternAnalysisAgent(use_azure=False)
+        with patch("agents.pattern_analysis_agent.AzureOpenAIChatClient"):
+            agent = PatternAnalysisAgent()
 
             response_text = """
 Here are the patterns I found:
@@ -177,8 +177,8 @@ Here are the patterns I found:
     @pytest.mark.asyncio
     async def test_parse_pattern_response_invalid_json(self):
         """Test parsing invalid JSON response."""
-        with patch("agents.pattern_analysis_agent.OpenAIChatClient"):
-            agent = PatternAnalysisAgent(use_azure=False)
+        with patch("agents.pattern_analysis_agent.AzureOpenAIChatClient"):
+            agent = PatternAnalysisAgent()
 
             response_text = "This is not JSON, but mentions detector_ patterns"
 
@@ -191,8 +191,8 @@ Here are the patterns I found:
     @pytest.mark.asyncio
     async def test_summarize_prs_for_analysis(self):
         """Test PR summarization for LLM analysis."""
-        with patch("agents.pattern_analysis_agent.OpenAIChatClient"):
-            agent = PatternAnalysisAgent(use_azure=False)
+        with patch("agents.pattern_analysis_agent.AzureOpenAIChatClient"):
+            agent = PatternAnalysisAgent()
 
             pr_data = [
                 {
@@ -218,8 +218,8 @@ Here are the patterns I found:
     @pytest.mark.asyncio
     async def test_get_default_patterns(self):
         """Test default pattern generation."""
-        with patch("agents.pattern_analysis_agent.OpenAIChatClient"):
-            agent = PatternAnalysisAgent(use_azure=False)
+        with patch("agents.pattern_analysis_agent.AzureOpenAIChatClient"):
+            agent = PatternAnalysisAgent()
 
             patterns = agent._get_default_patterns()
 
@@ -236,8 +236,8 @@ Here are the patterns I found:
     @pytest.mark.asyncio
     async def test_extract_basic_patterns_from_text(self):
         """Test basic pattern extraction from unstructured text."""
-        with patch("agents.pattern_analysis_agent.OpenAIChatClient"):
-            agent = PatternAnalysisAgent(use_azure=False)
+        with patch("agents.pattern_analysis_agent.AzureOpenAIChatClient"):
+            agent = PatternAnalysisAgent()
 
             text = """
 I found several patterns:
@@ -260,8 +260,8 @@ class TestCreatePatternAnalysisAgent:
     @pytest.mark.asyncio
     async def test_create_pattern_analysis_agent_openai(self):
         """Test factory function creates agent with OpenAI client."""
-        with patch("agents.pattern_analysis_agent.OpenAIChatClient"):
-            agent = await create_pattern_analysis_agent(use_azure=False)
+        with patch("agents.pattern_analysis_agent.AzureOpenAIChatClient"):
+            agent = await create_pattern_analysis_agent()
 
             assert isinstance(agent, PatternAnalysisAgent)
             assert agent.use_azure is False
@@ -269,8 +269,8 @@ class TestCreatePatternAnalysisAgent:
     @pytest.mark.asyncio
     async def test_create_pattern_analysis_agent_azure(self):
         """Test factory function creates agent with Azure client."""
-        with patch("agents.pattern_analysis_agent.AzureOpenAIChatClient"):
-            agent = await create_pattern_analysis_agent(use_azure=True)
+        with patch("agents.pattern_analysis_agent.AzureAzureOpenAIChatClient"):
+            agent = await create_pattern_analysis_agent()
 
             assert isinstance(agent, PatternAnalysisAgent)
             assert agent.use_azure is True

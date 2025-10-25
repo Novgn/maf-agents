@@ -63,7 +63,7 @@ class TestPatternAnalysisIntegration:
             pytest.skip("No detector-related PRs found in repository")
 
         # Create pattern analysis agent
-        agent = await create_pattern_analysis_agent(use_azure=False)
+        agent = await create_pattern_analysis_agent()
 
         # Analyze patterns
         patterns = await agent.analyze_pr_patterns(prs)
@@ -85,7 +85,7 @@ class TestPatternAnalysisIntegration:
     async def test_pattern_analysis_with_no_prs(self):
         """Test pattern analysis with no PR data (should return defaults)."""
         # Create agent
-        agent = await create_pattern_analysis_agent(use_azure=False)
+        agent = await create_pattern_analysis_agent()
 
         # Analyze with empty data
         patterns = await agent.analyze_pr_patterns([])
@@ -114,7 +114,7 @@ class TestPatternAnalysisIntegration:
             pytest.skip("No PRs found")
 
         # Create agent
-        agent = await create_pattern_analysis_agent(use_azure=False)
+        agent = await create_pattern_analysis_agent()
 
         # Analyze with focus on specific areas
         patterns = await agent.analyze_pr_patterns(

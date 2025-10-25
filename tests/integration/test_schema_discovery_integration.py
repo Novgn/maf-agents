@@ -45,7 +45,7 @@ class TestSchemaDiscoveryIntegration:
         # Create the Schema Discovery Agent
         agent = await create_schema_discovery_agent(
             kusto_client=kusto_client,
-            use_azure=False
+            
         )
 
         # Use a test provider GUID (this may not exist in the cluster)
@@ -100,7 +100,7 @@ class TestSchemaDiscoveryManual:
         # Create agent
         agent = await create_schema_discovery_agent(
             kusto_client=kusto_client,
-            use_azure=False
+            
         )
 
         # Use a real provider GUID from your cluster

@@ -165,26 +165,17 @@ class TestETWInputAgent:
     """Tests for the ETWInputAgent class."""
 
     @pytest.mark.asyncio
-    async def test_agent_initialization_with_openai(self):
-        """Test agent initialization with OpenAI client."""
-        with patch("agents.etw_input_agent.OpenAIChatClient") as mock_client:
-            agent = ETWInputAgent(use_azure=False)
-            assert agent.use_azure is False
-            mock_client.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_agent_initialization_with_azure(self):
+    async def test_agent_initialization(self):
         """Test agent initialization with Azure OpenAI client."""
         with patch("agents.etw_input_agent.AzureOpenAIChatClient") as mock_client:
-            agent = ETWInputAgent(use_azure=True)
-            assert agent.use_azure is True
+            agent = ETWInputAgent()
             mock_client.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_collect_inputs_pre_populated_valid(self):
         """Test collect_inputs with pre-populated valid data."""
-        with patch("agents.etw_input_agent.OpenAIChatClient"):
-            agent = ETWInputAgent(use_azure=False)
+        with patch("agents.etw_input_agent.AzureOpenAIChatClient"):
+            agent = ETWInputAgent()
 
             result = await agent.collect_inputs(
                 provider_guid="12345678-1234-1234-1234-123456789012",
@@ -198,8 +189,8 @@ class TestETWInputAgent:
     @pytest.mark.asyncio
     async def test_collect_inputs_pre_populated_invalid_guid(self):
         """Test collect_inputs with pre-populated invalid GUID."""
-        with patch("agents.etw_input_agent.OpenAIChatClient"):
-            agent = ETWInputAgent(use_azure=False)
+        with patch("agents.etw_input_agent.AzureOpenAIChatClient"):
+            agent = ETWInputAgent()
 
             with pytest.raises(ValueError, match="Invalid GUID format"):
                 await agent.collect_inputs(
@@ -210,8 +201,8 @@ class TestETWInputAgent:
     @pytest.mark.asyncio
     async def test_collect_inputs_pre_populated_empty_rule_id(self):
         """Test collect_inputs with pre-populated empty rule ID."""
-        with patch("agents.etw_input_agent.OpenAIChatClient"):
-            agent = ETWInputAgent(use_azure=False)
+        with patch("agents.etw_input_agent.AzureOpenAIChatClient"):
+            agent = ETWInputAgent()
 
             with pytest.raises(ValueError, match="Rule ID cannot be empty"):
                 await agent.collect_inputs(
@@ -222,14 +213,14 @@ class TestETWInputAgent:
     @pytest.mark.asyncio
     async def test_collect_inputs_conversational_success(self):
         """Test collect_inputs with conversational flow (mocked)."""
-        with patch("agents.etw_input_agent.OpenAIChatClient"), \
+        with patch("agents.etw_input_agent.AzureOpenAIChatClient"), \
              patch("agents.etw_input_agent.input") as mock_input:
 
             # Mock ChatAgent
             mock_agent = AsyncMock()
             mock_agent.run = AsyncMock(return_value="Mock agent response")
 
-            agent = ETWInputAgent(use_azure=False)
+            agent = ETWInputAgent()
             agent.agent = mock_agent
 
             # Simulate user inputs
@@ -247,14 +238,14 @@ class TestETWInputAgent:
     @pytest.mark.asyncio
     async def test_collect_inputs_conversational_invalid_guid_retry(self):
         """Test collect_inputs with invalid GUID and retry."""
-        with patch("agents.etw_input_agent.OpenAIChatClient"), \
+        with patch("agents.etw_input_agent.AzureOpenAIChatClient"), \
              patch("agents.etw_input_agent.input") as mock_input:
 
             # Mock ChatAgent
             mock_agent = AsyncMock()
             mock_agent.run = AsyncMock(return_value="Mock agent response")
 
-            agent = ETWInputAgent(use_azure=False)
+            agent = ETWInputAgent()
             agent.agent = mock_agent
 
             # Simulate user inputs: invalid GUID first, then valid
@@ -275,17 +266,8 @@ class TestCreateETWInputAgent:
     """Tests for the create_etw_input_agent factory function."""
 
     @pytest.mark.asyncio
-    async def test_create_etw_input_agent_openai(self):
-        """Test factory function creates agent with OpenAI client."""
-        with patch("agents.etw_input_agent.OpenAIChatClient"):
-            agent = await create_etw_input_agent(use_azure=False)
-            assert isinstance(agent, ETWInputAgent)
-            assert agent.use_azure is False
-
-    @pytest.mark.asyncio
-    async def test_create_etw_input_agent_azure(self):
-        """Test factory function creates agent with Azure client."""
+    async def test_create_etw_input_agent(self):
+        """Test factory function creates agent with Azure OpenAI client."""
         with patch("agents.etw_input_agent.AzureOpenAIChatClient"):
-            agent = await create_etw_input_agent(use_azure=True)
+            agent = await create_etw_input_agent()
             assert isinstance(agent, ETWInputAgent)
-            assert agent.use_azure is True

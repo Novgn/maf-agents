@@ -10,7 +10,6 @@ import re
 import json
 
 from agent_framework import ChatAgent
-from agent_framework.openai import OpenAIChatClient
 from agent_framework.azure import AzureOpenAIChatClient
 
 from shared.models import CodePattern
@@ -27,20 +26,14 @@ class PatternAnalysisAgent:
     and extract naming conventions and code patterns.
     """
 
-    def __init__(self, use_azure: bool = False):
+    def __init__(self):
         """
         Initialize the Pattern Analysis Agent.
 
-        Args:
-            use_azure: If True, use AzureOpenAIChatClient; otherwise use OpenAIChatClient
+        Uses Azure OpenAI for LLM-based pattern analysis.
         """
-        self.use_azure = use_azure
-
         # Create the chat client
-        if use_azure:
-            chat_client = AzureOpenAIChatClient()
-        else:
-            chat_client = OpenAIChatClient()
+        chat_client = AzureOpenAIChatClient()
 
         # Create the conversational agent with instructions for pattern analysis
         self.agent = ChatAgent(
@@ -272,14 +265,11 @@ Extract patterns for:
         ]
 
 
-async def create_pattern_analysis_agent(use_azure: bool = False) -> PatternAnalysisAgent:
+async def create_pattern_analysis_agent() -> PatternAnalysisAgent:
     """
     Factory function to create a Pattern Analysis Agent.
 
-    Args:
-        use_azure: If True, use Azure OpenAI client; otherwise use OpenAI client
-
     Returns:
-        Configured PatternAnalysisAgent instance
+        Configured PatternAnalysisAgent instance using Azure OpenAI
     """
-    return PatternAnalysisAgent(use_azure=use_azure)
+    return PatternAnalysisAgent()

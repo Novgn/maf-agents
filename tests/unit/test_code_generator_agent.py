@@ -20,8 +20,8 @@ class TestCodeGeneratorAgent:
     @pytest.mark.asyncio
     async def test_agent_initialization_with_openai(self):
         """Test agent initialization with OpenAI client."""
-        with patch("agents.code_generator_agent.OpenAIChatClient"):
-            agent = CodeGeneratorAgent(use_azure=False)
+        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
+            agent = CodeGeneratorAgent()
 
             assert agent.use_azure is False
             assert agent.agent is not None
@@ -29,8 +29,8 @@ class TestCodeGeneratorAgent:
     @pytest.mark.asyncio
     async def test_agent_initialization_with_azure(self):
         """Test agent initialization with Azure OpenAI client."""
-        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
-            agent = CodeGeneratorAgent(use_azure=True)
+        with patch("agents.code_generator_agent.AzureAzureOpenAIChatClient"):
+            agent = CodeGeneratorAgent()
 
             assert agent.use_azure is True
             assert agent.agent is not None
@@ -38,8 +38,8 @@ class TestCodeGeneratorAgent:
     @pytest.mark.asyncio
     async def test_generate_code_success(self):
         """Test successful code generation."""
-        with patch("agents.code_generator_agent.OpenAIChatClient"):
-            agent = CodeGeneratorAgent(use_azure=False)
+        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
+            agent = CodeGeneratorAgent()
 
             # Mock ChatAgent response
             mock_agent = AsyncMock()
@@ -103,8 +103,8 @@ def test_detector():
     @pytest.mark.asyncio
     async def test_validate_python_syntax_valid(self):
         """Test syntax validation with valid Python code."""
-        with patch("agents.code_generator_agent.OpenAIChatClient"):
-            agent = CodeGeneratorAgent(use_azure=False)
+        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
+            agent = CodeGeneratorAgent()
 
             valid_code = """
 def hello():
@@ -115,8 +115,8 @@ def hello():
     @pytest.mark.asyncio
     async def test_validate_python_syntax_invalid(self):
         """Test syntax validation with invalid Python code."""
-        with patch("agents.code_generator_agent.OpenAIChatClient"):
-            agent = CodeGeneratorAgent(use_azure=False)
+        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
+            agent = CodeGeneratorAgent()
 
             invalid_code = """
 def hello(
@@ -127,8 +127,8 @@ def hello(
     @pytest.mark.asyncio
     async def test_validate_python_syntax_empty(self):
         """Test syntax validation with empty code."""
-        with patch("agents.code_generator_agent.OpenAIChatClient"):
-            agent = CodeGeneratorAgent(use_azure=False)
+        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
+            agent = CodeGeneratorAgent()
 
             assert agent._validate_python_syntax("") is False
             assert agent._validate_python_syntax("   ") is False
@@ -136,8 +136,8 @@ def hello(
     @pytest.mark.asyncio
     async def test_sanitize_class_name(self):
         """Test class name sanitization."""
-        with patch("agents.code_generator_agent.OpenAIChatClient"):
-            agent = CodeGeneratorAgent(use_azure=False)
+        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
+            agent = CodeGeneratorAgent()
 
             assert agent._sanitize_class_name("test_rule") == "TestRule"
             assert agent._sanitize_class_name("test-rule-123") == "TestRule123"
@@ -146,8 +146,8 @@ def hello(
     @pytest.mark.asyncio
     async def test_format_schema_fields(self):
         """Test schema fields formatting for LLM prompt."""
-        with patch("agents.code_generator_agent.OpenAIChatClient"):
-            agent = CodeGeneratorAgent(use_azure=False)
+        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
+            agent = CodeGeneratorAgent()
 
             fields = [
                 KustoSchemaField(name="EventId", data_type="int", description="Event ID"),
@@ -163,8 +163,8 @@ def hello(
     @pytest.mark.asyncio
     async def test_format_schema_fields_empty(self):
         """Test schema fields formatting with empty list."""
-        with patch("agents.code_generator_agent.OpenAIChatClient"):
-            agent = CodeGeneratorAgent(use_azure=False)
+        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
+            agent = CodeGeneratorAgent()
 
             formatted = agent._format_schema_fields([])
 
@@ -173,8 +173,8 @@ def hello(
     @pytest.mark.asyncio
     async def test_format_patterns(self):
         """Test patterns formatting for LLM prompt."""
-        with patch("agents.code_generator_agent.OpenAIChatClient"):
-            agent = CodeGeneratorAgent(use_azure=False)
+        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
+            agent = CodeGeneratorAgent()
 
             patterns = [
                 CodePattern(
@@ -194,8 +194,8 @@ def hello(
     @pytest.mark.asyncio
     async def test_format_patterns_empty(self):
         """Test patterns formatting with empty list."""
-        with patch("agents.code_generator_agent.OpenAIChatClient"):
-            agent = CodeGeneratorAgent(use_azure=False)
+        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
+            agent = CodeGeneratorAgent()
 
             formatted = agent._format_patterns([])
 
@@ -204,8 +204,8 @@ def hello(
     @pytest.mark.asyncio
     async def test_parse_generated_code_complete(self):
         """Test parsing complete LLM response."""
-        with patch("agents.code_generator_agent.OpenAIChatClient"):
-            agent = CodeGeneratorAgent(use_azure=False)
+        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
+            agent = CodeGeneratorAgent()
 
             response = """
 DETECTOR_FILENAME: my_detector.py
@@ -233,8 +233,8 @@ def test_my_detector():
     @pytest.mark.asyncio
     async def test_parse_generated_code_partial(self):
         """Test parsing partial LLM response with fallbacks."""
-        with patch("agents.code_generator_agent.OpenAIChatClient"):
-            agent = CodeGeneratorAgent(use_azure=False)
+        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
+            agent = CodeGeneratorAgent()
 
             response = "Some text without proper format"
 
@@ -248,8 +248,8 @@ def test_my_detector():
     @pytest.mark.asyncio
     async def test_generate_fallback_detector_code(self):
         """Test fallback detector code generation."""
-        with patch("agents.code_generator_agent.OpenAIChatClient"):
-            agent = CodeGeneratorAgent(use_azure=False)
+        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
+            agent = CodeGeneratorAgent()
 
             code = agent._generate_fallback_detector_code("my_test_rule")
 
@@ -261,8 +261,8 @@ def test_my_detector():
     @pytest.mark.asyncio
     async def test_prepare_generation_context(self):
         """Test generation context preparation."""
-        with patch("agents.code_generator_agent.OpenAIChatClient"):
-            agent = CodeGeneratorAgent(use_azure=False)
+        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
+            agent = CodeGeneratorAgent()
 
             provider_guid = "guid-123"
             rule_id = "rule-1"
@@ -296,8 +296,8 @@ class TestCreateCodeGeneratorAgent:
     @pytest.mark.asyncio
     async def test_create_code_generator_agent_openai(self):
         """Test factory function creates agent with OpenAI client."""
-        with patch("agents.code_generator_agent.OpenAIChatClient"):
-            agent = await create_code_generator_agent(use_azure=False)
+        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
+            agent = await create_code_generator_agent()
 
             assert isinstance(agent, CodeGeneratorAgent)
             assert agent.use_azure is False
@@ -305,8 +305,8 @@ class TestCreateCodeGeneratorAgent:
     @pytest.mark.asyncio
     async def test_create_code_generator_agent_azure(self):
         """Test factory function creates agent with Azure client."""
-        with patch("agents.code_generator_agent.AzureOpenAIChatClient"):
-            agent = await create_code_generator_agent(use_azure=True)
+        with patch("agents.code_generator_agent.AzureAzureOpenAIChatClient"):
+            agent = await create_code_generator_agent()
 
             assert isinstance(agent, CodeGeneratorAgent)
             assert agent.use_azure is True

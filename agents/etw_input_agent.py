@@ -10,7 +10,6 @@ from typing import Annotated, Optional
 from pydantic import Field
 
 from agent_framework import ChatAgent
-from agent_framework.openai import OpenAIChatClient
 from agent_framework.azure import AzureOpenAIChatClient
 
 from shared.models import ETWInputData
@@ -100,20 +99,14 @@ class ETWInputAgent:
     ETW provider GUID and rule ID from detector engineers.
     """
 
-    def __init__(self, use_azure: bool = False):
+    def __init__(self):
         """
         Initialize the ETW Input Agent.
 
-        Args:
-            use_azure: If True, use AzureOpenAIChatClient; otherwise use OpenAIChatClient
+        Uses Azure OpenAI for conversational input collection.
         """
-        self.use_azure = use_azure
-
         # Create the chat client
-        if use_azure:
-            chat_client = AzureOpenAIChatClient()
-        else:
-            chat_client = OpenAIChatClient()
+        chat_client = AzureOpenAIChatClient()
 
         # Create the conversational agent
         self.agent = ChatAgent(
@@ -229,14 +222,11 @@ Use the validate_etw_input tool to validate both inputs together once collected.
         )
 
 
-async def create_etw_input_agent(use_azure: bool = False) -> ETWInputAgent:
+async def create_etw_input_agent() -> ETWInputAgent:
     """
     Factory function to create an ETW Input Agent.
 
-    Args:
-        use_azure: If True, use Azure OpenAI client; otherwise use OpenAI client
-
     Returns:
-        Configured ETWInputAgent instance
+        Configured ETWInputAgent instance using Azure OpenAI
     """
-    return ETWInputAgent(use_azure=use_azure)
+    return ETWInputAgent()

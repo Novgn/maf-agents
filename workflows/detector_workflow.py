@@ -25,7 +25,7 @@ from agent_framework import (
     ai_function,
     AgentRunResponse,
 )
-from agent_framework.openai import OpenAIChatClient
+from agent_framework.azure import AzureOpenAIChatClient
 from typing_extensions import Never
 
 from shared.config import get_config
@@ -57,7 +57,7 @@ async def etw_input_collection_executor(
     print("    Initializing ETW Input Collection Agent...")
 
     # Create the ETW Input Agent
-    agent = await create_etw_input_agent(use_azure=False)
+    agent = await create_etw_input_agent()
 
     # Check if data was pre-populated (for automation) or needs conversational collection
     if input_data and "provider_guid" in input_data and "rule_id" in input_data:
@@ -116,8 +116,7 @@ async def schema_discovery_executor(
 
             # Create the Schema Discovery Agent
             agent = await create_schema_discovery_agent(
-                kusto_client=kusto_client,
-                use_azure=False
+                kusto_client=kusto_client
             )
 
             # Run schema discovery
@@ -306,13 +305,15 @@ def proceed_with_pr_deployment(
     return "PR deployment approved - workflow will continue"
 
 
-async def _handle_pr_approval(workflow_data: dict[str, Any], chat_client: OpenAIChatClient) -> bool:
+async def _handle_pr_approval(
+    workflow_data: dict[str, Any], chat_client: AzureOpenAIChatClient
+) -> bool:
     """
     Handle PR approval using MAF's ChatAgent approval pattern.
 
     Args:
         workflow_data: Workflow state with PR details
-        chat_client: OpenAI chat client for agent
+        chat_client: Azure OpenAI chat client for agent
 
     Returns:
         True if approved, False otherwise
@@ -429,7 +430,7 @@ async def approval_gate_executor(
     print("=" * 70)
 
     # Create chat client for approval agent
-    chat_client = OpenAIChatClient()
+    chat_client = AzureOpenAIChatClient()
 
     # Handle PR approval using MAF pattern
     approved = await _handle_pr_approval(workflow_data, chat_client)
@@ -728,7 +729,7 @@ def confirm_detector_results(
 async def _handle_results_confirmation(
     workflow_data: dict[str, Any],
     metrics: dict[str, Any],
-    chat_client: OpenAIChatClient
+    chat_client: AzureOpenAIChatClient,
 ) -> bool:
     """
     Handle user confirmation of detector results using MAF's ChatAgent approval pattern.
@@ -736,7 +737,7 @@ async def _handle_results_confirmation(
     Args:
         workflow_data: Workflow state with detector info
         metrics: Results metrics from Kusto analysis
-        chat_client: OpenAI chat client for agent
+        chat_client: Azure OpenAI chat client for agent
 
     Returns:
         True if confirmed, False otherwise
@@ -865,7 +866,7 @@ async def results_analysis_executor(
         return
 
     # Handle user confirmation using MAF pattern
-    chat_client = OpenAIChatClient()
+    chat_client = AzureOpenAIChatClient()  # Use Azure OpenAI instead of OpenAI
     confirmed = await _handle_results_confirmation(workflow_data, metrics, chat_client)
 
     # Update workflow data
