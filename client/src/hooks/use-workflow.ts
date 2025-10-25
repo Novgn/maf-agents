@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { apiClient, createWorkflowWebSocket } from "@/lib/api-client";
+import { apiClient } from "@/lib/api-client";
+import { WebSocketManager } from "@/lib/websocket-manager";
 import { WorkflowStep, StepStatus, WorkflowContextType } from "@/lib/types";
 import { createDefaultSteps } from "@/components/workflow/workflow-stepper";
 
@@ -31,8 +32,10 @@ export function useWorkflow(): WorkflowContextType {
   const [isConnected, setIsConnected] = useState(false);
   const [isCreatingWorkflow, setIsCreatingWorkflow] = useState(false);
   const [isSubmittingInput, setIsSubmittingInput] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [isUsingPolling, setIsUsingPolling] = useState(false);
 
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsManagerRef = useRef<WebSocketManager | null>(null);
 
   /**
    * Updates the status of a specific workflow step.
@@ -123,34 +126,55 @@ export function useWorkflow(): WorkflowContextType {
     }
   }, [workflowId]);
 
-  // WebSocket connection management
+  // WebSocket connection management with reconnection and polling fallback
   useEffect(() => {
     if (!workflowId) return;
 
-    // Create WebSocket connection
-    const ws = createWorkflowWebSocket(workflowId, {
-      onOpen: () => {
-        setIsConnected(true);
-        console.log("Connected to workflow WebSocket");
+    // Create WebSocket manager with automatic reconnection
+    const wsManager = new WebSocketManager(
+      workflowId,
+      {
+        onOpen: () => {
+          setIsConnected(true);
+          setIsReconnecting(false);
+          setIsUsingPolling(false);
+          console.log("Connected to workflow WebSocket");
+        },
+        onMessage: handleWorkflowUpdate,
+        onError: (error) => {
+          console.error("WebSocket error:", error);
+        },
+        onClose: () => {
+          setIsConnected(false);
+          console.log("Disconnected from workflow WebSocket");
+        },
+        onReconnecting: (attempt) => {
+          setIsReconnecting(true);
+          setIsConnected(false);
+          console.log(`Reconnecting... (attempt ${attempt})`);
+        },
+        onFallbackToPolling: () => {
+          setIsUsingPolling(true);
+          setIsReconnecting(false);
+          setIsConnected(false);
+          console.log("Fell back to polling mode");
+        },
       },
-      onMessage: handleWorkflowUpdate,
-      onError: (error) => {
-        console.error("WebSocket error:", error);
-        setIsConnected(false);
-      },
-      onClose: () => {
-        setIsConnected(false);
-        console.log("Disconnected from workflow WebSocket");
-      },
-    });
+      {
+        maxReconnectAttempts: 3,
+        initialReconnectDelay: 1000,
+        maxReconnectDelay: 30000,
+        pollingInterval: 5000,
+      }
+    );
 
-    wsRef.current = ws;
+    wsManagerRef.current = wsManager;
 
     // Cleanup on unmount
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
+      if (wsManagerRef.current) {
+        wsManagerRef.current.close();
+        wsManagerRef.current = null;
       }
     };
   }, [workflowId, handleWorkflowUpdate]);
@@ -162,6 +186,8 @@ export function useWorkflow(): WorkflowContextType {
     steps,
     error,
     isConnected,
+    isReconnecting,
+    isUsingPolling,
     isCreatingWorkflow,
     isSubmittingInput,
     createWorkflow,

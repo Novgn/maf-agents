@@ -20,6 +20,8 @@ export default function WorkflowPage() {
     steps,
     error,
     isConnected,
+    isReconnecting,
+    isUsingPolling,
     createWorkflow,
     submitInput,
   } = useWorkflow();
@@ -214,6 +216,16 @@ export default function WorkflowPage() {
                   <>
                     <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
                     <span className="text-sm font-medium text-green-700">Connected</span>
+                  </>
+                ) : isReconnecting ? (
+                  <>
+                    <Loader2 className="h-3 w-3 text-yellow-600 animate-spin" />
+                    <span className="text-sm font-medium text-yellow-700">Reconnecting...</span>
+                  </>
+                ) : isUsingPolling ? (
+                  <>
+                    <div className="h-2 w-2 bg-blue-500 rounded-full animate-pulse" />
+                    <span className="text-sm font-medium text-blue-700">Polling Mode</span>
                   </>
                 ) : (
                   <>
