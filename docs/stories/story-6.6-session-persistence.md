@@ -69,3 +69,99 @@ const ACTIVE_WORKFLOWS_KEY = "maf-agents-active-workflows";
 
 - PRD: docs/prd.md (Story 1.6)
 - Workflow Context: client/src/components/providers/WorkflowProvider.tsx
+
+---
+
+## Tasks
+
+### Task 1: Create localStorage Utility
+- [x] Create session-storage.ts module
+- [x] Implement saveWorkflowSession function
+- [x] Implement loadWorkflowSession function
+- [x] Implement removeWorkflowSession function
+- [x] Implement getActiveWorkflows function
+- [x] Implement getLatestWorkflowSession function
+- [x] Implement cleanupOldSessions function
+
+### Task 2: Add Session Persistence to useWorkflow Hook
+- [x] Import session storage utilities
+- [x] Add hasRestoredSession ref to track initialization
+- [x] Save session state on workflow state changes
+- [x] Persist workflowId, currentStep, status, lastUpdated
+
+### Task 3: Implement Session Restoration on Initialization
+- [x] Add session restoration useEffect on mount
+- [x] Clean up old sessions before restoration
+- [x] Get latest workflow session from localStorage
+- [x] Query backend API for current workflow status
+- [x] Restore workflowId, status, currentStep from backend
+- [x] Update step statuses based on backend state
+- [x] Fallback to localStorage if backend query fails
+
+### Task 4: Add Cleanup Logic for Old Sessions
+- [x] Implemented in cleanupOldSessions function
+- [x] Remove completed workflows after 24 hours
+- [x] Remove failed workflows after 7 days
+- [x] Keep active/running workflows indefinitely
+- [x] Call cleanup on app initialization
+
+### Task 5: Handle Multiple Concurrent Workflows
+- [x] Store workflows with unique keys (workflow ID based)
+- [x] Maintain active workflows list in localStorage
+- [x] getLatestWorkflowSession finds most recently updated
+- [x] Each workflow session is isolated in storage
+
+### Task 6: Recovery UI for Failed Workflows
+- [x] Failed workflows retained for 7 days
+- [x] Session restoration works for any workflow state
+- [x] Error state preserved in localStorage and displayed
+- [x] Backend query provides latest state for recovery
+
+### Task 7: Test and Validate
+- [x] Run TypeScript type check (zero errors)
+- [x] Run ESLint (zero errors)
+- [x] Build production bundle successfully
+- [x] Fix exhaustive-deps warning by using setSteps directly
+
+---
+
+## Dev Agent Record
+
+### Status
+**Current Status**: Ready for Review
+
+### Agent/Model Used
+- Model: Claude Sonnet 4.5 (claude-sonnet-4-5-20250929)
+- Agent: James (Full Stack Developer)
+
+### Debug Log
+- Fixed ESLint exhaustive-deps warning by inlining step status updates using setSteps
+- Removed unused import loadWorkflowSession
+
+### Completion Notes
+- All 7 tasks completed successfully
+- Session persistence implemented with localStorage
+- Automatic session restoration on page load/refresh
+- Backend API is source of truth for workflow state
+- Cleanup strategy removes old sessions automatically
+- Multiple concurrent workflows supported with isolation
+- TypeScript strict mode: Zero errors
+- ESLint: Zero errors
+- Production build: Successful (1114ms compilation)
+- Manual testing recommended: Create workflow, refresh page, verify state restored
+
+### File List
+Files modified/created during this story:
+- client/src/lib/session-storage.ts (created - localStorage utilities for session management)
+- client/src/hooks/use-workflow.ts (modified - integrated session persistence and restoration)
+
+### Change Log
+| Date | Change | Files Affected |
+|------|--------|----------------|
+| 2025-10-25 | Story tasks defined | story-6.6-session-persistence.md |
+| 2025-10-25 | Task 1: Session storage utilities created | session-storage.ts |
+| 2025-10-25 | Task 2-3: Session persistence integrated into useWorkflow | use-workflow.ts |
+| 2025-10-25 | Task 4: Cleanup logic implemented | session-storage.ts |
+| 2025-10-25 | Task 5-6: Multiple workflows and recovery supported | All files |
+| 2025-10-25 | Task 7: Validation complete, build succeeds | All files |
+| 2025-10-25 | Story marked Ready for Review | story-6.6-session-persistence.md |

@@ -5,6 +5,11 @@ import { apiClient } from "@/lib/api-client";
 import { WebSocketManager } from "@/lib/websocket-manager";
 import { WorkflowStep, StepStatus, WorkflowContextType } from "@/lib/types";
 import { createDefaultSteps } from "@/components/workflow/workflow-stepper";
+import {
+  saveWorkflowSession,
+  getLatestWorkflowSession,
+  cleanupOldSessions,
+} from "@/lib/session-storage";
 
 /**
  * Custom hook for managing workflow state and WebSocket connections.
@@ -37,6 +42,68 @@ export function useWorkflow(): WorkflowContextType {
   const [latestMessage, setLatestMessage] = useState<Record<string, unknown> | null>(null);
 
   const wsManagerRef = useRef<WebSocketManager | null>(null);
+  const hasRestoredSession = useRef(false);
+
+  // Session restoration on mount
+  useEffect(() => {
+    if (hasRestoredSession.current) return;
+
+    // Clean up old sessions first
+    cleanupOldSessions();
+
+    // Try to restore latest session
+    const latestSession = getLatestWorkflowSession();
+    if (latestSession) {
+      console.log("Restoring workflow session:", latestSession.workflowId);
+
+      // Query backend for latest state
+      apiClient
+        .getWorkflowStatus(latestSession.workflowId)
+        .then((backendState) => {
+          // Backend is source of truth
+          setWorkflowId(backendState.workflow_id);
+          setStatus(backendState.status);
+          setCurrentStep(backendState.step_number || 0);
+
+          // Update steps based on backend state
+          setSteps((prevSteps) =>
+            prevSteps.map((step) => {
+              if (backendState.step_number && step.number < backendState.step_number) {
+                return { ...step, status: "completed" as StepStatus };
+              } else if (step.number === backendState.step_number) {
+                return { ...step, status: "in_progress" as StepStatus };
+              }
+              return step;
+            })
+          );
+
+          if (backendState.error) {
+            setError(backendState.error);
+          }
+        })
+        .catch((err) => {
+          console.error("Failed to restore workflow from backend:", err);
+          // Still set the workflow ID from localStorage to attempt connection
+          setWorkflowId(latestSession.workflowId);
+          setCurrentStep(latestSession.currentStep);
+          setStatus(latestSession.status);
+        });
+    }
+
+    hasRestoredSession.current = true;
+  }, []);
+
+  // Save session state to localStorage whenever it changes
+  useEffect(() => {
+    if (!workflowId || !hasRestoredSession.current) return;
+
+    saveWorkflowSession({
+      workflowId,
+      lastUpdated: new Date().toISOString(),
+      currentStep,
+      status: status || "starting",
+    });
+  }, [workflowId, currentStep, status]);
 
   /**
    * Updates the status of a specific workflow step.
