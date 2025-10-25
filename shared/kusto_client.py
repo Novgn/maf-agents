@@ -53,9 +53,10 @@ class KustoClientWrapper:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=8),
         retry=retry_if_exception_type((KustoServiceError, ConnectionError)),
+        reraise=True,
     )
     def execute_query(
-        self, query: str, timeout_seconds: int = 30, parameters: Optional[Dict[str, Any]] = None
+        self, query: str, timeout_seconds: int = 30, parameters: Optional[Dict[str, Any]] = None  # noqa: ARG002
     ) -> List[Dict[str, Any]]:
         """
         Execute a Kusto query with timeout and retry logic.
