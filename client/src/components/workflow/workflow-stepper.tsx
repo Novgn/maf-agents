@@ -4,21 +4,7 @@ import { CheckCircle2, Circle, Loader2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-
-export type StepStatus = "pending" | "in_progress" | "completed" | "failed";
-
-export interface WorkflowStep {
-  id: string;
-  number: number;
-  title: string;
-  description: string;
-  status: StepStatus;
-}
-
-interface WorkflowStepperProps {
-  steps: WorkflowStep[];
-  currentStep: number;
-}
+import { WorkflowStep, StepStatus, WorkflowStepperProps } from "@/lib/types";
 
 const STEP_TITLES = [
   "Detector Triage",
@@ -89,7 +75,7 @@ export function WorkflowStepper({ steps, currentStep }: WorkflowStepperProps) {
           </div>
 
           <div className="space-y-2">
-            {steps.map((step, index) => {
+            {steps.map((step) => {
               const isActive = step.number === currentStep;
               const isPast = step.number < currentStep;
 

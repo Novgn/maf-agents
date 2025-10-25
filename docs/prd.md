@@ -1,958 +1,679 @@
-# maf-agents Product Requirements Document (PRD)
+# maf-agents Brownfield Enhancement PRD
+# Production-Ready Next.js Frontend Integration
 
-## Goals and Background Context
+## Intro Project Analysis and Context
 
-### Goals
+### Analysis Source
+**Source**: IDE-based fresh analysis of existing codebase
+- Architecture documentation: `docs/architecture.md`
+- Existing PRD: `docs/prd.md`
+- Backend API server: `server/api/main.py`
+- Frontend client: `client/` (Next.js 16)
 
-- Automate the end-to-end Azure detector development lifecycle from ETW input to production promotion
-- Reduce detector development cycle time by 70% (from 6 hours to <2 hours)
-- Achieve 90%+ code pattern consistency by learning from historical PR patterns
-- Enable conversational, guided workflow with human-in-the-loop approval gates
-- Provide checkpoint-based state management for workflow recovery and resilience
-- Successfully process 10+ detector workflows during POC phase
-- Reduce onboarding time for new detector developers by 50%
+---
 
-### Background Context
+### Existing Project Overview
 
-Azure detector development for ETW-based monitoring is currently a manual, time-consuming process requiring engineers to context-switch between multiple tools (Kusto explorer, Azure DevOps, code editors) while performing repetitive tasks like schema validation, pattern matching, and PR creation. This manual workflow takes 4-8 hours per detector and suffers from inconsistent code quality, knowledge bottlenecks, and delayed feedback loops. As Azure monitoring needs grow, detector development has become a critical bottleneck.
+#### Current Project State
 
-**maf-agents** addresses this by leveraging Microsoft Agent Framework (Python) to create a conversational multi-agent system that orchestrates 7 specialized sub-workflow agents through a sequential workflow. Built entirely on Azure-native services (Azure Repos for source control, Azure Kusto for data querying), the system automates schema discovery, code generation, deployment verification, and production promotion while maintaining quality through pattern learning and human approval gates at critical checkpoints.
+**maf-agents** is a **stateless workflow orchestration engine** built on Microsoft Agent Framework (Python) that automates the end-to-end Azure detector development lifecycle. The system achieves a 70% cycle time reduction (6hrs → <2hrs) by orchestrating 8 specialized executors through a conversational workflow with human-in-the-loop approval gates.
+
+**Core Backend Architecture**:
+- Microsoft Agent Framework (Python 3.10+) with sequential executor pattern
+- FastAPI server with REST + WebSocket APIs (`server/api/main.py`)
+- Checkpoint-based state persistence (FileCheckpointStorage)
+- Azure-native integrations (Azure Repos, Azure Kusto)
+- 9-step workflow: Triage → ETW Input → Schema Discovery → Code Gen → PR Creation → Approval → Deployment → Results Analysis → Production Promotion
+- **Status**: Production-ready
+
+**Existing Frontend** (`client/`):
+- Next.js 16 with React 19 and TypeScript
+- Tailwind CSS v4 + shadcn/ui components
+- API client with WebSocket support (`lib/api-client.ts`)
+- Basic workflow page with chat interface
+- Components: `ChatInterface`, `ETWInputForm`, `ApprovalDialog`, `WorkflowStepper`
+- **Status**: Prototype with incomplete backend integration; requires refactoring
+
+---
+
+### Available Documentation Analysis
+
+✅ **Available Documentation**:
+- ✓ Tech Stack Documentation (`docs/architecture.md`)
+- ✓ Source Tree/Architecture (Monorepo structure defined)
+- ✓ Coding Standards (Documented in architecture)
+- ✓ API Documentation (FastAPI endpoints in `server/api/main.py`)
+- ✓ External API Documentation (Azure SDKs documented)
+- ✗ UX/UI Guidelines (To be created)
+- ✓ Technical Debt Documentation (`docs/poc-issues-log.md`)
+
+**Assessment**: Strong technical documentation exists. This PRD adds comprehensive UI/UX requirements for production frontend.
+
+---
+
+### Enhancement Scope Definition
+
+#### Enhancement Type
+- ☑ **New Feature Addition** (Production-ready web UI)
+- ☑ **Integration with Existing Systems** (Backend workflow integration)
+- ☑ **UI/UX Overhaul** (Transform prototype to production)
+
+#### Enhancement Description
+Transform the existing Next.js 16 prototype (`client/`) into a **production-ready web application** with two primary capabilities: (1) a **conversational chat interface** that integrates with the Microsoft Agent Framework workflow backend for guided detector development, and (2) an **informational dashboard** displaying active detectors, provider information, workflow history, and system health metrics.
+
+#### Impact Assessment
+- ☑ **Moderate Impact**: Existing frontend structure remains; requires refactoring and replacing mocks with real integrations
+- Backend API already supports required operations; minimal backend changes needed
+- New dashboard components will be added as separate routes
+- Existing workflow components will be enhanced with production-grade features
+
+---
+
+### Goals and Background Context
+
+#### Goals
+1. Refactor existing Next.js frontend into production-grade code structure
+2. Replace mock/simulated frontend data with full backend API integration
+3. Implement production-ready conversational chat interface with real-time workflow updates
+4. Build informational dashboard showing active detectors, provider data, and workflow metrics
+5. Achieve production-grade reliability, error handling, and user experience
+6. Support concurrent workflow sessions with proper state management
+7. Enable deployment to Azure App Service with proper configuration
+
+#### Background Context
+The maf-agents backend has been successfully implemented with Microsoft Agent Framework and validated through CLI interactions. The system is production-ready and capable of automating detector development workflows. However, the existing Next.js frontend prototype (`client/`) requires significant refactoring and complete backend integration to provide a production-quality user experience. This enhancement bridges the gap between the proven backend and a production-ready web interface that makes the system accessible to a broader range of users.
+
+---
 
 ### Change Log
 
-| Date | Version | Description | Author |
-|------|---------|-------------|--------|
-| 2025-10-24 | 0.1 | Initial PRD draft | PM Agent (John) |
+| Change | Date | Version | Description | Author |
+|--------|------|---------|-------------|---------|
+| Initial Draft | 2025-10-25 | 1.0 | Brownfield PRD for Next.js production frontend | PM Agent (John) |
 
 ---
 
 ## Requirements
 
-### Functional
+### Functional Requirements
 
-1. **FR1**: The system shall accept ETW details (providerGuid and ruleId) from users via conversational interface
-2. **FR2**: The system shall validate ETW input parameters before proceeding with workflow
-3. **FR3**: The system shall query Azure Kusto cluster to identify existing detectors matching ETW criteria
-4. **FR4**: The system shall query Azure Kusto to retrieve and validate ETW schema definitions
-5. **FR5**: The system shall parse Kusto query results and extract relevant schema information
-6. **FR6**: The system shall create a new branch in Azure Repos for detector development
-7. **FR7**: The system shall analyze historical PRs in Azure Repos to extract naming conventions
-8. **FR8**: The system shall analyze historical PRs to extract code patterns and best practices
-9. **FR9**: The system shall generate detector code files following learned patterns and conventions
-10. **FR10**: The system shall commit generated detector code to Azure Repos branch
-11. **FR11**: The system shall create a PR in Azure Repos with appropriate title and description
-12. **FR12**: The system shall present the generated PR to the user for review via conversational interface
-13. **FR13**: The system shall wait for explicit user approval before proceeding past approval gate
-14. **FR14**: The system shall monitor Azure Repos to detect when PR has been merged
-15. **FR15**: The system shall verify detector deployment status via Azure DevOps APIs
-16. **FR16**: The system shall execute user-provided Kusto queries to fetch detector results
-17. **FR17**: The system shall analyze detector results and present findings to user in conversational format
-18. **FR18**: The system shall wait for user confirmation that detector results are acceptable
-19. **FR19**: The system shall analyze repo history for production promotion patterns and examples
-20. **FR20**: The system shall generate a PR to promote detector to customer-facing status
-21. **FR21**: The system shall save workflow state at critical checkpoints for recovery
-22. **FR22**: The system shall support resuming workflow from last successful checkpoint after interruption
-23. **FR23**: The system shall orchestrate all 7 sub-workflow agents in sequential order
-24. **FR24**: The system shall provide conversational feedback on workflow progress at each step
-25. **FR25**: The system shall handle errors gracefully and provide actionable error messages to users
+1. **FR1**: The frontend shall establish WebSocket connection to backend for real-time workflow status updates
+2. **FR2**: The frontend shall display conversational chat interface that sends user messages to the workflow triage agent
+3. **FR3**: The frontend shall receive and display agent responses in real-time through WebSocket events
+4. **FR4**: The frontend shall support all 9 workflow steps with appropriate UI components (chat, forms, approval dialogs)
+5. **FR5**: The frontend shall display workflow progress using a visual stepper component showing current step status
+6. **FR6**: The dashboard shall display list of active detector workflows with their current status
+7. **FR7**: The dashboard shall display ETW provider information retrieved from backend
+8. **FR8**: The dashboard shall show workflow history with completion status and timestamps
+9. **FR9**: The frontend shall handle workflow approval gates with approve/reject actions
+10. **FR10**: The frontend shall support submitting ETW input data (providerGuid, ruleId) to the workflow
+11. **FR11**: The frontend shall display generated PR information during approval steps
+12. **FR12**: The frontend shall show deployment verification status and results analysis data
+13. **FR13**: The dashboard shall display system health metrics (active workflows, connection status, backend health)
+14. **FR14**: The frontend shall support concurrent workflow sessions with proper state isolation
+15. **FR15**: The frontend shall persist workflow state in browser for session recovery on page refresh
+16. **FR16**: The frontend shall implement error boundaries to catch and display React component errors gracefully
+17. **FR17**: The frontend shall provide user feedback for all async operations (loading spinners, progress bars)
+18. **FR18**: The chat interface shall support markdown rendering for formatted agent responses
+19. **FR19**: The frontend shall allow users to navigate between active workflow sessions
+20. **FR20**: The dashboard shall provide export functionality for workflow history (CSV/JSON)
 
-### Non Functional
+### Non-Functional Requirements
 
-1. **NFR1**: Conversational interface response time shall be sub-second for user interactions
-2. **NFR2**: Azure Kusto query execution shall complete within 30 seconds
-3. **NFR3**: Azure Repos PR creation operations shall complete within 2 minutes
-4. **NFR4**: The system shall be implemented using Microsoft Agent Framework Python SDK
-5. **NFR5**: The system shall use Azure Repos exclusively for all source control operations
-6. **NFR6**: The system shall use Azure Kusto (Azure Data Explorer) exclusively for all data querying operations
-7. **NFR7**: The system shall authenticate to Azure services using Azure AD/Entra ID service principals
-8. **NFR8**: The system shall store all secrets and credentials in Azure Key Vault
-9. **NFR9**: The system shall log all workflow actions to support audit and debugging requirements
-10. **NFR10**: The system shall implement retry logic with exponential backoff for deployment detection
-11. **NFR11**: Code pattern matching accuracy shall achieve >80% match rate against historical PR conventions
-12. **NFR12**: Checkpoint recovery shall successfully restore workflow state with 100% reliability
-13. **NFR13**: The system shall run on Python 3.10 or higher
-14. **NFR14**: The system shall support Linux as primary platform and Windows for local development
-15. **NFR15**: All Azure integrations shall use official Azure Python SDKs and APIs
-16. **NFR16**: The system shall implement least-privilege access for all Azure service principals
-17. **NFR17**: The system shall handle Azure API rate limits gracefully with appropriate backoff
-18. **NFR18**: Kusto queries shall be provided as static templates (no dynamic query generation in POC)
+1. **NFR1**: The frontend shall maintain existing Next.js 16 and React 19 tech stack
+2. **NFR2**: The frontend shall use existing Tailwind CSS v4 and shadcn/ui component library
+3. **NFR3**: WebSocket reconnection shall implement exponential backoff with maximum 30-second retry interval
+4. **NFR4**: UI shall remain responsive during workflow execution with loading states and progress indicators
+5. **NFR5**: Error messages shall be user-friendly and actionable (no raw stack traces displayed)
+6. **NFR6**: The frontend shall implement TypeScript strict mode with no `any` types in production code
+7. **NFR7**: The frontend shall be deployable to Azure Static Web Apps or Azure App Service
+8. **NFR8**: Environment configuration shall use `.env.local` for development and Azure App Settings for production
+9. **NFR9**: API client shall implement retry logic for failed HTTP requests (3 retries with exponential backoff)
+10. **NFR10**: The frontend shall support browser back/forward navigation without breaking workflow state
+11. **NFR11**: The application shall be responsive and functional on desktop browsers (Chrome, Edge, Firefox, Safari)
+12. **NFR12**: Page load time shall be under 3 seconds on standard broadband connection
+13. **NFR13**: The frontend shall implement proper React hooks patterns (no class components)
+14. **NFR14**: All API calls shall include proper error handling and timeout configuration (30 second timeout)
+15. **NFR15**: The frontend shall log errors to browser console in development and to Azure Application Insights in production
 
----
+### Compatibility Requirements
 
-## Technical Assumptions
-
-### Repository Structure: Monorepo
-
-The maf-agents POC will use a monorepo structure to simplify development and dependency management during the POC phase. This allows all workflow agents, shared utilities, and orchestration code to coexist in a single repository, reducing complexity for a single-developer timeline.
-
-**Structure:**
-- `/workflows` - Main orchestrator and workflow definitions
-- `/agents` - Individual sub-workflow agent implementations
-- `/shared` - Common utilities (Azure Kusto client, Azure DevOps SDK wrappers, auth helpers)
-- `/tests` - Unit and integration tests
-- `/config` - Configuration files and templates
-
-**Rationale:** Monorepo simplifies cross-agent refactoring, shared code reuse, and deployment for POC. Can be split into polyrepo if needed post-POC.
-
-### Service Architecture
-
-**Stateless Workflow Execution Engine with Checkpoint Persistence**
-
-The system will implement a stateless workflow execution model using Microsoft Agent Framework's sequential orchestration pattern. Workflow state will be persisted to Azure Table Storage at checkpoint boundaries, enabling recovery and resume after interruptions.
-
-**Architecture:**
-- Main orchestrator coordinates 7 sub-workflow agents sequentially
-- Each agent implements request/response pattern for communication
-- Checkpoint system saves state before and after critical operations
-- No in-memory session state; all state externalized to Azure Table Storage
-- Agents are idempotent where possible to support retry logic
-
-**Rationale:** Stateless design with externalized state aligns with Microsoft Agent Framework best practices and ensures workflow resilience. Sequential orchestration provides clear control flow for POC validation.
-
-### Testing Requirements
-
-**Unit + Integration Testing**
-
-The POC will implement unit tests for individual agent logic and integration tests for Azure service interactions (Kusto queries, Azure Repos operations, checkpoint persistence).
-
-**Testing Strategy:**
-- **Unit Tests:** Test agent business logic, pattern extraction, and validation rules in isolation using mocks
-- **Integration Tests:** Test Azure Kusto SDK integration, Azure DevOps REST API integration, and checkpoint persistence with real Azure services (or emulators where available)
-- **Manual Testing:** End-to-end workflow testing with real detector development scenarios
-- **No E2E automation in POC:** Full automated E2E tests deferred to post-POC phase
-
-**Rationale:** Unit + Integration testing provides sufficient quality assurance for POC while staying within 2-3 week timeline. Manual E2E testing validates the conversational workflow UX which is difficult to automate.
-
-### Additional Technical Assumptions and Requests
-
-- **Python Version:** Python 3.10+ required for Microsoft Agent Framework compatibility
-- **Azure Kusto Query Templates:** Kusto queries for schema discovery and results analysis will be provided as static templates (no dynamic query generation)
-- **Authentication:** Service principal with least-privilege RBAC roles for Azure Repos (Contributor) and Azure Kusto (Viewer)
-- **Secret Management:** All connection strings, service principal credentials, and API keys stored in Azure Key Vault
-- **Logging Framework:** Use Python `logging` module with structured logging to capture workflow events, agent actions, and Azure API calls
-- **Error Handling:** Implement try-catch blocks around all Azure API calls with specific exception handling for rate limits, timeouts, and authentication errors
-- **Configuration Management:** Use environment variables or config files for Azure resource identifiers (Kusto cluster URL, Azure Repos organization/project)
-- **Conversational Interface:** CLI/Terminal-based conversational interface for POC (no web UI or chat integration)
-- **Deployment:** Local execution for POC; containerization deferred to post-POC phase
+1. **CR1: Backend API Compatibility**: All frontend API calls must use existing FastAPI endpoints (`/api/workflows`, WebSocket `/ws/workflows/{id}`) without requiring backend changes
+2. **CR2: Existing Component Compatibility**: Refactored code must maintain existing shadcn/ui component patterns and Tailwind styling approach
+3. **CR3: Monorepo Compatibility**: Frontend deployment configuration must work within existing monorepo structure (`client/` directory)
+4. **CR4: Azure Integration Compatibility**: Frontend must integrate with Azure App Service deployment pipeline and support Azure AD authentication (if implemented)
 
 ---
 
-## Epic List
+## User Interface Enhancement Goals
 
-### Epic 1: Foundation & Workflow Orchestration
+### Integration with Existing UI
 
-**Goal:** Establish project foundation with Microsoft Agent Framework orchestration, authentication, checkpoint system, and basic health check functionality to validate the framework and Azure integrations.
+The frontend enhancement will build upon the existing Next.js 16 + React 19 + Tailwind CSS v4 foundation while upgrading from prototype to production quality. The enhancement maintains:
 
-### Epic 2: ETW Input Collection & Schema Discovery
+- **Component Library**: Continue using shadcn/ui components with Radix UI primitives
+- **Design Language**: Maintain existing Tailwind utility-first approach with consistent spacing, typography, and color schemes
+- **Layout Patterns**: Preserve existing container/card-based layouts for consistency
 
-**Goal:** Implement the first two workflow agents (ETW Input Collection and Kusto Schema Discovery) to enable conversational ETW parameter collection and Azure Kusto schema validation.
+**Key Integration Points**:
+- Existing `WorkflowStepper` component will be enhanced with real-time status updates
+- Current `ChatInterface` will be refactored to support markdown rendering and WebSocket message streaming
+- `ApprovalDialog` will be extended to handle different approval types (code review, results confirmation, production promotion)
+- New dashboard components will follow existing card-based layout patterns
 
-### Epic 3: Detector Code Generation & PR Management
+### Modified/New Screens and Views
 
-**Goal:** Implement the Detector Code Generator agent with historical PR pattern analysis, Azure Repos integration for branch/commit/PR creation, and the User Approval Gate for human-in-the-loop control.
+#### Enhanced/Modified Screens
 
-### Epic 4: Deployment Verification & Results Analysis
+1. **Workflow Page** (`/workflow`) - ENHANCED
+   - Replace mock data with real WebSocket integration
+   - Add session persistence for page refresh recovery
+   - Implement proper error boundaries and loading states
+   - Add ability to switch between multiple concurrent workflows
 
-**Goal:** Implement Deployment Verification and Results Analysis agents to close the feedback loop by detecting deployed detectors and analyzing their effectiveness via Kusto queries.
+2. **Landing Page** (`/`) - NEW
+   - Welcome screen with system overview
+   - Quick start guide for creating first detector
+   - Link to workflow and dashboard pages
 
-### Epic 5: Production Promotion & POC Validation
+#### New Screens
 
-**Goal:** Implement the Production Promotion agent to complete the end-to-end workflow and validate the POC with multiple detector development scenarios.
+3. **Dashboard Page** (`/dashboard`) - NEW
+   - Active workflows list with status indicators
+   - Workflow history table with filtering/search
+   - ETW provider information cards
+   - System health metrics panel
+   - Export functionality for workflow data
 
----
+4. **Workflow History Detail** (`/dashboard/workflow/[id]`) - NEW
+   - Detailed view of completed workflow
+   - Step-by-step execution timeline
+   - Generated artifacts (PR links, code diffs, results)
+   - Conversation history replay
 
-## Epic 1: Foundation & Workflow Orchestration
+5. **Error Page** (`/error`) - NEW
+   - User-friendly error messages
+   - Suggested troubleshooting steps
+   - Link back to dashboard or create new workflow
 
-**Expanded Goal:** Establish the foundational infrastructure for the maf-agents POC by setting up the Python project with Microsoft Agent Framework SDK, configuring Azure authentication, implementing the main workflow orchestrator skeleton, and building the checkpoint persistence system. This epic delivers a working orchestration framework with health check functionality that validates Azure connectivity and checkpoint recovery, providing the foundation for all subsequent agent development.
+### UI Consistency Requirements
 
-### Story 1.1: Project Setup and Dependency Installation
-
-As a **developer**,
-I want **a Python project initialized with Microsoft Agent Framework SDK and all required Azure SDKs**,
-so that **I can begin implementing workflow agents on a solid foundation**.
-
-#### Acceptance Criteria
-
-1. Python 3.10+ virtual environment is created and activated
-2. `requirements.txt` includes Microsoft Agent Framework Python SDK, Azure Kusto Python SDK, Azure DevOps Python SDK (azure-devops), Azure Identity SDK, Azure Key Vault SDK
-3. Project structure created with `/workflows`, `/agents`, `/shared`, `/tests`, `/config` directories
-4. README.md documents environment setup, dependency installation, and project structure
-5. `.gitignore` configured for Python projects (venv, __pycache__, .env, etc.)
-6. Project successfully runs `python --version` and `pip list` showing all dependencies installed
-
-### Story 1.2: Azure Service Principal and Key Vault Configuration
-
-As a **developer**,
-I want **Azure authentication configured with service principal credentials stored in Azure Key Vault**,
-so that **workflow agents can securely access Azure Repos and Azure Kusto**.
-
-#### Acceptance Criteria
-
-1. Service principal created with appropriate RBAC roles for Azure Repos (Contributor) and Azure Kusto (Viewer)
-2. Service principal credentials (tenant ID, client ID, client secret) stored in Azure Key Vault
-3. `/shared/auth.py` module implements authentication helper using `DefaultAzureCredential` or `ClientSecretCredential`
-4. Environment variables or config file specify Azure Key Vault URL and secret names
-5. Authentication module retrieves credentials from Key Vault and returns authenticated clients for Azure Repos and Azure Kusto
-6. Unit test validates successful authentication and credential retrieval (using test credentials or mocks)
-
-### Story 1.3: Checkpoint Persistence System Implementation
-
-As a **developer**,
-I want **a checkpoint system that saves and restores workflow state to Azure Table Storage**,
-so that **workflows can resume after interruptions or failures**.
-
-#### Acceptance Criteria
-
-1. `/shared/checkpoint.py` module implements `CheckpointManager` class
-2. `CheckpointManager.save_checkpoint(workflow_id, state_dict)` persists state to Azure Table Storage
-3. `CheckpointManager.load_checkpoint(workflow_id)` retrieves state from Azure Table Storage
-4. `CheckpointManager.list_checkpoints()` returns all checkpoints for a workflow
-5. Checkpoint state includes: workflow ID, timestamp, current agent/step, ETW inputs, PR URLs, and any intermediate results
-6. Azure Table Storage connection configured via environment variable or config
-7. Unit tests validate save, load, and list operations with mock or test table
-8. Integration test validates round-trip persistence to real Azure Table Storage
-
-### Story 1.4: Main Workflow Orchestrator Skeleton
-
-As a **developer**,
-I want **a main orchestrator that coordinates workflow agents sequentially using Microsoft Agent Framework**,
-so that **I can add agents incrementally and validate orchestration logic**.
-
-#### Acceptance Criteria
-
-1. `/workflows/main_orchestrator.py` implements the main workflow class using Microsoft Agent Framework sequential orchestration pattern
-2. Orchestrator defines placeholders for 7 sub-workflow agents (ETW Input, Schema Discovery, Code Generator, User Approval, Deployment Verification, Results Analysis, Production Promotion)
-3. Orchestrator implements checkpoint save/load at workflow start, between agents, and at workflow completion
-4. Orchestrator provides conversational interface (CLI prompts) for workflow initialization and progress updates
-5. Orchestrator handles exceptions and errors gracefully with user-friendly messages
-6. Workflow can be started with `python -m workflows.main_orchestrator` and executes placeholder agents in sequence
-7. Unit test validates orchestrator calls agents in correct sequential order
-8. Integration test validates checkpoint persistence between agent executions
-
-### Story 1.5: Health Check Agent and Framework Validation
-
-As a **developer**,
-I want **a simple health check agent that validates Azure connectivity and checkpoint recovery**,
-so that **I can confirm the Microsoft Agent Framework setup is working correctly**.
-
-#### Acceptance Criteria
-
-1. `/agents/health_check_agent.py` implements a minimal agent that performs health checks
-2. Health check agent validates connectivity to Azure Kusto cluster (simple query like `print "Hello"`)
-3. Health check agent validates connectivity to Azure Repos (fetch repository metadata)
-4. Health check agent validates checkpoint save/load by creating and restoring a test checkpoint
-5. Health check agent returns status report with success/failure for each validation
-6. Main orchestrator can invoke health check agent as first step in workflow
-7. CLI displays health check results in conversational format
-8. Integration test validates successful health check execution with real Azure services
+1. **Visual Consistency**: All new components must use existing Tailwind color palette (blue-600 primary, gray scale, status colors)
+2. **Interaction Patterns**: Maintain existing button styles, form inputs, and modal behaviors from shadcn/ui
+3. **Responsive Design**: Desktop-first approach (1280px+ optimal), graceful degradation to 1024px minimum
+4. **Loading States**: Consistent use of lucide-react icons (`Loader2`) with spin animation for async operations
+5. **Status Indicators**: Standardize status badges (running=blue, completed=green, failed=red) across all views
+6. **Typography**: Maintain existing font hierarchy (headings, body text, code/mono)
+7. **Spacing**: Continue using Tailwind spacing scale for consistent padding/margins
 
 ---
 
-## Epic 2: ETW Input Collection & Schema Discovery
+## Technical Constraints and Integration Requirements
 
-**Expanded Goal:** Implement the first two workflow agents that handle user input collection and schema validation. The ETW Input Collection agent will conversationally gather providerGuid and ruleId from the user with validation, while the Kusto Schema Discovery agent will query Azure Kusto to identify existing detectors and retrieve the ETW schema definition. This epic delivers the first critical steps of the detector development workflow with validated Azure Kusto integration.
+### Existing Technology Stack
 
-### Story 2.1: ETW Input Collection Agent Implementation
+**Languages**: TypeScript 5.x, JavaScript (ES2022)
 
-As a **detector engineer**,
-I want **a conversational agent that collects and validates my ETW providerGuid and ruleId**,
-so that **I can provide detector requirements in a natural, guided way**.
+**Frameworks**:
+- Next.js 16.0.0 (App Router)
+- React 19.2.0
+- Tailwind CSS v4 (@tailwindcss/postcss)
 
-#### Acceptance Criteria
+**UI Libraries**:
+- shadcn/ui components (Radix UI primitives)
+- lucide-react (icons)
+- class-variance-authority (component variants)
 
-1. `/agents/etw_input_agent.py` implements the ETW Input Collection agent as a Microsoft Agent Framework sub-workflow
-2. Agent prompts user conversationally for providerGuid (GUID format validation)
-3. Agent prompts user for ruleId (string/integer validation)
-4. Agent validates providerGuid format (valid GUID with hyphens)
-5. Agent validates ruleId is not empty
-6. Agent stores validated ETW inputs in workflow state for downstream agents
-7. Agent provides helpful error messages for invalid inputs and re-prompts
-8. Agent integrates with main orchestrator as the first workflow step
-9. Unit tests validate input validation logic with valid and invalid inputs
-10. Integration test validates conversational flow with simulated user inputs
+**Backend**:
+- FastAPI (Python 3.10+)
+- Microsoft Agent Framework
+- WebSocket support
 
-### Story 2.2: Azure Kusto Client Wrapper Implementation
+**Infrastructure**:
+- Development: npm/Node.js 20+
+- Target Deployment: Azure Static Web Apps or Azure App Service
+- Backend: Already deployed/production-ready
 
-As a **developer**,
-I want **a reusable Azure Kusto client wrapper with query execution and error handling**,
-so that **all agents can query Kusto consistently and reliably**.
+**External Dependencies**:
+- Backend REST API: `http://localhost:8000/api` (dev), Azure endpoint (prod)
+- WebSocket API: `ws://localhost:8000/ws` (dev), Azure endpoint (prod)
 
-#### Acceptance Criteria
+### Integration Approach
 
-1. `/shared/kusto_client.py` implements `KustoClientWrapper` class
-2. Wrapper initializes Kusto client with cluster URL and database name from config
-3. Wrapper implements `execute_query(query_string, timeout_seconds)` method
-4. Wrapper handles Kusto query errors (syntax errors, timeouts, authentication failures) and raises specific exceptions
-5. Wrapper implements retry logic with exponential backoff for transient failures
-6. Wrapper logs all queries and results for debugging
-7. Wrapper includes timeout enforcement (default 30 seconds per NFR2)
-8. Unit tests validate error handling and retry logic with mocks
-9. Integration test validates successful query execution against real Azure Kusto cluster
+#### Backend Integration Strategy
+- **REST API**: Use existing `apiClient` in `lib/api-client.ts` for workflow CRUD operations
+- **WebSocket**: Enhance existing `createWorkflowWebSocket` for real-time event streaming
+- **State Management**: Implement React Context for global workflow state with local storage persistence
+- **Error Handling**: Centralized error handling with typed error responses from backend
 
-### Story 2.3: Kusto Schema Discovery Agent Implementation
+#### Frontend Integration Strategy
+- **Component Refactoring**: Extract business logic from components into custom hooks
+- **State Management**: Create `WorkflowContext` provider for global state; maintain local state for UI-only concerns
+- **Routing**: Use Next.js App Router with proper loading/error boundaries
+- **Data Fetching**: Server Components for dashboard data; Client Components for interactive workflow
+- **Type Safety**: Generate TypeScript types from backend OpenAPI schema
 
-As a **detector engineer**,
-I want **an agent that queries Kusto to discover existing detectors and retrieve the ETW schema**,
-so that **I know my detector will use the correct schema and I can see related detectors**.
+#### Testing Integration Strategy
+- **Unit Tests**: Jest + React Testing Library for component logic
+- **Integration Tests**: Mock Service Worker (MSW) for API mocking
+- **E2E Tests**: Playwright for critical user flows (deferred to post-MVP)
+- **Type Checking**: `tsc --noEmit` in CI pipeline
 
-#### Acceptance Criteria
+### Code Organization and Standards
 
-1. `/agents/schema_discovery_agent.py` implements the Schema Discovery agent as a Microsoft Agent Framework sub-workflow
-2. Agent retrieves providerGuid and ruleId from workflow state
-3. Agent constructs Kusto query (from template) to find existing detectors matching providerGuid
-4. Agent executes Kusto query using `KustoClientWrapper`
-5. Agent parses query results to extract list of existing detector names and metadata
-6. Agent constructs Kusto query (from template) to retrieve ETW schema definition for providerGuid
-7. Agent executes schema query and parses results to extract schema fields
-8. Agent stores existing detectors list and schema definition in workflow state
-9. Agent presents findings to user conversationally (e.g., "Found 3 existing detectors: X, Y, Z. Schema has 12 fields.")
-10. Agent integrates with main orchestrator as second workflow step after ETW Input Collection
-11. Unit tests validate query construction and result parsing with mock Kusto responses
-12. Integration test validates complete schema discovery with real Kusto cluster and sample ETW data
+#### File Structure Approach
+```
+client/
+├── src/
+│   ├── app/                    # Next.js App Router pages
+│   │   ├── page.tsx           # Landing page
+│   │   ├── layout.tsx         # Root layout
+│   │   ├── workflow/          # Workflow routes
+│   │   └── dashboard/         # Dashboard routes
+│   ├── components/
+│   │   ├── ui/                # shadcn/ui primitives
+│   │   ├── workflow/          # Workflow-specific components
+│   │   ├── dashboard/         # Dashboard components
+│   │   └── providers/         # React Context providers
+│   ├── hooks/                 # Custom React hooks
+│   ├── lib/
+│   │   ├── api-client.ts      # API client (enhanced)
+│   │   ├── utils.ts           # Utility functions
+│   │   └── types.ts           # Shared TypeScript types
+│   └── styles/                # Global styles
+```
 
-### Story 2.4: Kusto Query Template Configuration
+#### Naming Conventions
+- **Components**: PascalCase (`WorkflowStepper.tsx`)
+- **Hooks**: camelCase with `use` prefix (`useWorkflow.ts`)
+- **Utilities**: camelCase (`formatTimestamp.ts`)
+- **Types**: PascalCase interfaces/types (`WorkflowStatus`)
+- **Constants**: UPPER_SNAKE_CASE (`API_BASE_URL`)
 
-As a **developer**,
-I want **Kusto query templates stored in configuration files**,
-so that **queries can be easily modified without code changes**.
+#### Coding Standards
+- **TypeScript**: Strict mode enabled; no `any` types; explicit return types for functions
+- **React**: Functional components only; hooks for state/effects; proper dependency arrays
+- **Formatting**: Prettier with 2-space indent, single quotes, trailing commas
+- **Linting**: ESLint with Next.js config + TypeScript rules
+- **Comments**: JSDoc for exported functions; inline comments for complex logic only
 
-#### Acceptance Criteria
+#### Documentation Standards
+- **Component Props**: Document with TypeScript interfaces and JSDoc
+- **API Functions**: Document parameters, return types, and error cases
+- **README**: Update client/README.md with setup, development, and deployment instructions
 
-1. `/config/kusto_queries.yaml` file created with template definitions
-2. Template includes `find_existing_detectors` query with placeholders for providerGuid
-3. Template includes `get_etw_schema` query with placeholders for providerGuid
-4. Template includes `fetch_detector_results` query with placeholders for detector name and time range (for future use)
-5. Query templates use parameterized format compatible with Kusto Python SDK
-6. `/shared/kusto_client.py` implements `load_query_template(template_name, params)` method
-7. Method replaces placeholders with actual values and returns executable query string
-8. Unit tests validate template loading and parameter substitution
-9. README documents how to add or modify query templates
+### Deployment and Operations
 
----
+#### Build Process Integration
+- **Development**: `npm run dev` (Next.js dev server on port 3000)
+- **Build**: `npm run build` (Next.js production build)
+- **Type Check**: `npm run type-check` (TypeScript validation)
+- **Lint**: `npm run lint` (ESLint check)
 
-## Epic 3: Detector Code Generation & PR Management
+#### Deployment Strategy
+- **Development**: Local Next.js dev server connecting to local FastAPI backend
+- **Staging**: Azure Static Web Apps with preview deployments for PRs
+- **Production**: Azure Static Web Apps or Azure App Service with custom domain
 
-**Expanded Goal:** Implement the core automation value of the workflow by building the Detector Code Generator agent that analyzes historical PRs, learns patterns, and generates detector code following team conventions. This epic also implements Azure Repos integration for branch creation, commits, and PR submission, along with the User Approval Gate that provides human-in-the-loop control before proceeding with deployment.
+#### Monitoring and Logging
+- **Client-Side Logging**: Console in dev; Azure Application Insights in production
+- **Error Tracking**: React Error Boundaries with error reporting to Application Insights
+- **Performance Monitoring**: Next.js built-in analytics + Web Vitals reporting
 
-### Story 3.1: Azure Repos Client Wrapper Implementation
+#### Configuration Management
+- **Environment Variables**:
+  - `NEXT_PUBLIC_API_URL`: Backend REST API endpoint
+  - `NEXT_PUBLIC_WS_URL`: Backend WebSocket endpoint
+  - `NEXT_PUBLIC_APP_INSIGHTS_KEY`: Azure Application Insights key (optional)
+- **Development**: `.env.local` file (gitignored)
+- **Production**: Azure App Settings or Static Web Apps configuration
 
-As a **developer**,
-I want **a reusable Azure Repos client wrapper for repository operations**,
-so that **agents can create branches, commit code, and manage PRs consistently**.
+### Risk Assessment and Mitigation
 
-#### Acceptance Criteria
+#### Technical Risks
+1. **WebSocket Connection Stability**: Network interruptions could break real-time updates
+   - **Mitigation**: Implement automatic reconnection with exponential backoff; fallback to polling if WebSocket unavailable
 
-1. `/shared/repos_client.py` implements `AzureReposClientWrapper` class
-2. Wrapper initializes Azure DevOps client with organization, project, and repository from config
-3. Wrapper implements `create_branch(branch_name, source_branch)` method
-4. Wrapper implements `commit_files(branch_name, file_changes, commit_message)` method where file_changes is dict of {file_path: content}
-5. Wrapper implements `create_pull_request(source_branch, target_branch, title, description)` method
-6. Wrapper implements `get_pull_request_status(pr_id)` method to check merge status
-7. Wrapper handles Azure DevOps API errors and implements retry logic for transient failures
-8. Wrapper logs all operations for debugging
-9. Unit tests validate operation logic with mocks
-10. Integration test validates branch creation, commit, and PR creation against real Azure Repos (test repository)
+2. **State Synchronization**: Frontend and backend state could become out of sync
+   - **Mitigation**: Implement optimistic UI updates with rollback; periodic state reconciliation
 
-### Story 3.2: Historical PR Pattern Analysis Implementation
+3. **TypeScript Type Drift**: Backend API changes could break frontend types
+   - **Mitigation**: Generate types from OpenAPI schema; implement contract testing
 
-As a **developer**,
-I want **logic to analyze historical PRs and extract naming conventions and code patterns**,
-so that **generated detector code follows team conventions automatically**.
+#### Integration Risks
+1. **Backend API Changes**: Backend modifications could break frontend
+   - **Mitigation**: Backend is production-ready; use API versioning if changes needed; comprehensive integration tests
 
-#### Acceptance Criteria
+2. **Browser Compatibility**: Modern features might not work in older browsers
+   - **Mitigation**: Target modern browsers only (Chrome/Edge/Firefox/Safari latest versions); document requirements
 
-1. `/agents/pattern_analyzer.py` implements `PRPatternAnalyzer` class
-2. Analyzer implements `fetch_recent_prs(repository, limit=20)` to retrieve recent merged PRs related to detectors
-3. Analyzer implements `extract_naming_patterns(prs)` to identify file naming conventions (regex-based pattern extraction)
-4. Analyzer implements `extract_code_patterns(prs)` to identify common code structures (e.g., class names, function signatures, imports)
-5. Analyzer stores extracted patterns in workflow state for Code Generator agent
-6. Analyzer provides confidence score for each pattern (based on frequency in PRs)
-7. Analyzer handles cases where insufficient PR history exists (falls back to default templates)
-8. Unit tests validate pattern extraction with mock PR data
-9. Integration test validates pattern analysis with real Azure Repos PR history
+#### Deployment Risks
+1. **Azure Configuration**: Incorrect environment variables could cause runtime failures
+   - **Mitigation**: Validate configuration on startup; provide clear error messages; comprehensive deployment documentation
 
-### Story 3.3: Detector Code Generator Agent Implementation
+2. **Build Failures**: TypeScript/lint errors could block deployment
+   - **Mitigation**: Run type-check and lint in pre-commit hooks; CI/CD pipeline validation
 
-As a **detector engineer**,
-I want **an agent that generates detector code files following learned patterns and conventions**,
-so that **my detector code is consistent with team standards without manual effort**.
-
-#### Acceptance Criteria
-
-1. `/agents/code_generator_agent.py` implements the Code Generator agent as Microsoft Agent Framework sub-workflow
-2. Agent retrieves ETW inputs (providerGuid, ruleId) and schema definition from workflow state
-3. Agent invokes `PRPatternAnalyzer` to extract naming and code patterns from historical PRs
-4. Agent generates detector file name following naming patterns
-5. Agent generates detector code (Python class) following code patterns, incorporating ETW schema fields
-6. Agent includes necessary imports, class definition, initialization, and ETW event handling logic
-7. Agent generates test file (basic unit test skeleton) following test patterns
-8. Agent validates generated code syntax (Python AST parsing)
-9. Agent stores generated files in workflow state for commit
-10. Agent presents generated code preview to user conversationally
-11. Unit tests validate code generation with mock patterns and ETW schema
-12. Integration test validates complete code generation with real pattern analysis
-
-### Story 3.4: Azure Repos Branch and PR Creation Agent
-
-As a **detector engineer**,
-I want **an agent that creates a branch, commits my generated code, and submits a PR**,
-so that **I can review the code in Azure Repos before deployment**.
-
-#### Acceptance Criteria
-
-1. `/agents/pr_creation_agent.py` implements the PR Creation agent as Microsoft Agent Framework sub-workflow
-2. Agent generates unique branch name (e.g., `detector/etw-{providerGuid}-{timestamp}`)
-3. Agent creates branch in Azure Repos from main/master branch
-4. Agent commits generated detector files to branch with descriptive commit message
-5. Agent creates PR with title following pattern conventions (e.g., "Add detector for ETW {providerGuid}")
-6. Agent generates PR description including ETW details, schema summary, and generated files list
-7. Agent stores PR ID and URL in workflow state
-8. Agent presents PR URL to user conversationally (e.g., "PR created: https://dev.azure.com/.../pullrequests/123")
-9. Agent integrates with main orchestrator after Code Generator agent
-10. Unit tests validate branch naming, commit message, and PR description generation
-11. Integration test validates complete branch/commit/PR workflow in test Azure Repos repository
-
-### Story 3.5: User Approval Gate Implementation
-
-As a **detector engineer**,
-I want **the workflow to pause and wait for my explicit approval of the generated PR**,
-so that **I maintain control over what gets deployed**.
-
-#### Acceptance Criteria
-
-1. `/agents/approval_gate_agent.py` implements the User Approval Gate agent as Microsoft Agent Framework sub-workflow
-2. Agent retrieves PR URL from workflow state
-3. Agent presents PR details to user conversationally (PR URL, files changed, summary)
-4. Agent prompts user: "Please review the PR. Type 'approve' to continue or 'reject' to cancel workflow."
-5. Agent waits for user input (blocking operation)
-6. If user approves, agent proceeds and returns success status
-7. If user rejects, agent cancels workflow and exits gracefully with cancellation message
-8. Agent saves checkpoint before waiting for approval (enables resume if process interrupted)
-9. Agent integrates with main orchestrator after PR Creation agent
-10. Unit tests validate approval and rejection logic with simulated inputs
-11. Integration test validates approval gate pauses workflow and resumes correctly
+#### Mitigation Strategies
+- **Comprehensive Error Handling**: Try-catch blocks around all async operations; typed error responses
+- **Progressive Enhancement**: Core functionality works without JavaScript; enhance with real-time features
+- **Graceful Degradation**: System remains usable if WebSocket fails (fallback to HTTP polling)
+- **Monitoring**: Application Insights for production error tracking and performance monitoring
 
 ---
 
-## Epic 4: Deployment Verification & Results Analysis
+## Epic and Story Structure
 
-**Expanded Goal:** Implement the feedback loop by building agents that verify detector deployment and analyze detector effectiveness. The Deployment Verification agent will monitor Azure Repos and Azure DevOps to detect when the PR is merged and the detector is deployed, while the Results Analysis agent will query Kusto to fetch detector results and present findings to the user for validation.
+### Epic Approach
 
-### Story 4.1: Deployment Verification Agent Implementation
+**Epic Structure Decision**: **Single Comprehensive Epic**
 
-As a **detector engineer**,
-I want **an agent that monitors my PR and notifies me when the detector is successfully deployed**,
-so that **I know when to proceed with results analysis**.
+**Rationale**: This brownfield enhancement represents a cohesive body of work focused on transforming the existing Next.js prototype into a production-ready frontend. While the work includes multiple features (chat integration, dashboard, deployment), they are all tightly coupled to the same goal and share the same technical foundation. A single epic ensures:
 
-#### Acceptance Criteria
+1. **Unified Technical Approach**: All stories share the same refactoring patterns, state management strategy, and integration approach
+2. **Sequential Dependencies**: Dashboard and deployment depend on core refactoring and backend integration being complete
+3. **Consistent User Experience**: All features must work together seamlessly as a cohesive application
+4. **Simplified Planning**: Single epic allows for better prioritization and risk management across related stories
 
-1. `/agents/deployment_verification_agent.py` implements the Deployment Verification agent as Microsoft Agent Framework sub-workflow
-2. Agent retrieves PR ID from workflow state
-3. Agent implements polling logic to check PR merge status via Azure Repos API (`get_pull_request_status`)
-4. Agent polls every 30 seconds with maximum wait time of 60 minutes (configurable)
-5. Agent detects when PR status changes to "completed" (merged)
-6. Agent queries Azure Pipelines API to check if deployment pipeline triggered and completed successfully
-7. Agent implements retry logic with exponential backoff for API calls per NFR10
-8. Agent stores deployment status and timestamp in workflow state
-9. Agent presents deployment confirmation to user conversationally (e.g., "PR merged and detector deployed successfully at 10:30 AM")
-10. Agent handles timeout scenario gracefully (e.g., "Deployment not detected after 60 minutes. Please verify manually.")
-11. Agent integrates with main orchestrator after User Approval Gate
-12. Unit tests validate polling logic and status detection with mocks
-13. Integration test validates deployment detection with simulated PR merge
-
-### Story 4.2: Results Analysis Agent Implementation
-
-As a **detector engineer**,
-I want **an agent that fetches detector results from Kusto and analyzes their effectiveness**,
-so that **I can validate the detector is working before promoting to production**.
-
-#### Acceptance Criteria
-
-1. `/agents/results_analysis_agent.py` implements the Results Analysis agent as Microsoft Agent Framework sub-workflow
-2. Agent retrieves detector name and deployment timestamp from workflow state
-3. Agent constructs Kusto query (from template) to fetch detector results for recent time window (e.g., last 1 hour)
-4. Agent executes query using `KustoClientWrapper`
-5. Agent parses query results to extract key metrics (number of events detected, error rate, false positive indicators)
-6. Agent analyzes results and generates summary (e.g., "Detector found 15 events in last hour. No errors detected.")
-7. Agent presents results conversationally with key findings highlighted
-8. Agent prompts user: "Do the results look correct? Type 'yes' to proceed or 'no' to investigate."
-9. Agent waits for user confirmation (blocking operation)
-10. If user confirms, agent proceeds to next step. If user declines, agent pauses workflow for investigation
-11. Agent stores results summary in workflow state
-12. Agent integrates with main orchestrator after Deployment Verification
-13. Unit tests validate query construction and result parsing with mock Kusto responses
-14. Integration test validates results analysis with real Kusto detector data
+Alternative considered: Multiple epics (Core Refactoring, Chat Integration, Dashboard, Deployment) - rejected due to tight coupling and increased coordination overhead.
 
 ---
 
-## Epic 5: Production Promotion & POC Validation
+## Epic 1: Production-Ready Next.js Frontend Integration
 
-**Expanded Goal:** Complete the end-to-end workflow by implementing the Production Promotion agent that generates a PR to make the detector customer-facing, using repo examples as guidance. This epic also includes comprehensive POC validation by running multiple detector workflows end-to-end and documenting findings for handoff to the architect and development team.
+**Epic Goal**: Transform the existing Next.js 16 prototype into a production-ready web application with full backend integration, conversational chat interface, informational dashboard, and Azure deployment capability.
 
-### Story 5.1: Production Promotion Pattern Analysis
+**Integration Requirements**:
+- Maintain compatibility with production-ready FastAPI backend
+- Preserve existing component library (shadcn/ui) and styling approach (Tailwind CSS v4)
+- Work within monorepo structure without disrupting backend development
+- Support Azure deployment pipeline and infrastructure
+
+---
+
+### Story 1.1: Core Frontend Refactoring and State Management
 
 As a **developer**,
-I want **logic to analyze historical PRs for production promotion patterns**,
-so that **the promotion PR follows established conventions**.
+I want to refactor the existing Next.js codebase with production-grade architecture and state management,
+so that the application has a solid foundation for backend integration and new features.
 
 #### Acceptance Criteria
 
-1. `/agents/promotion_pattern_analyzer.py` implements `PromotionPatternAnalyzer` class
-2. Analyzer implements `fetch_promotion_prs(repository, limit=10)` to retrieve PRs with "production" or "customer-facing" keywords
-3. Analyzer implements `extract_promotion_patterns(prs)` to identify common changes (config updates, flag changes, documentation)
-4. Analyzer identifies file patterns that indicate production readiness (e.g., feature flags, configuration files)
-5. Analyzer stores extracted patterns in workflow state
-6. Analyzer provides examples of promotion changes for Code Generator reference
-7. Unit tests validate pattern extraction with mock promotion PR data
-8. Integration test validates pattern analysis with real Azure Repos promotion PR history
+1. **AC1**: TypeScript strict mode is enabled with no `any` types in production code
+2. **AC2**: Business logic is extracted from components into custom hooks following React best practices
+3. **AC3**: Global state management is implemented using React Context (`WorkflowContext`)
+4. **AC4**: Error boundaries are implemented at route and component levels to catch rendering errors
+5. **AC5**: Consistent file structure is established following Next.js App Router conventions
+6. **AC6**: All components use proper TypeScript interfaces for props with JSDoc documentation
+7. **AC7**: ESLint and Prettier configurations are updated and passing
+8. **AC8**: Existing functionality (workflow page, components) continues to work after refactoring
 
-### Story 5.2: Production Promotion Agent Implementation
+#### Integration Verification
 
-As a **detector engineer**,
-I want **an agent that generates a PR to promote my detector to customer-facing status**,
-so that **the detector can be enabled for production use following team conventions**.
-
-#### Acceptance Criteria
-
-1. `/agents/production_promotion_agent.py` implements the Production Promotion agent as Microsoft Agent Framework sub-workflow
-2. Agent retrieves detector name and results summary from workflow state
-3. Agent invokes `PromotionPatternAnalyzer` to extract production promotion patterns
-4. Agent generates configuration changes to enable detector for customer-facing (e.g., feature flag update, config file modification)
-5. Agent creates new branch in Azure Repos (e.g., `detector/production-{detector-name}`)
-6. Agent commits promotion changes with descriptive message (e.g., "Promote detector {name} to production")
-7. Agent creates PR with title and description following promotion patterns
-8. Agent presents promotion PR URL to user conversationally
-9. Agent stores promotion PR details in workflow state
-10. Agent marks workflow as complete and saves final checkpoint
-11. Agent integrates with main orchestrator as final step after Results Analysis
-12. Unit tests validate promotion change generation with mock patterns
-13. Integration test validates complete production promotion workflow in test repository
-
-### Story 5.3: End-to-End Workflow Integration Testing
-
-As a **developer**,
-I want **comprehensive integration tests that validate the complete workflow from ETW input to production promotion**,
-so that **I can verify all 7 agents work together correctly**.
-
-#### Acceptance Criteria
-
-1. `/tests/integration/test_e2e_workflow.py` implements end-to-end integration test
-2. Test sets up test data: ETW providerGuid, ruleId, test Azure Repos repository, test Kusto cluster
-3. Test executes complete workflow through main orchestrator with all 7 agents
-4. Test validates checkpoint persistence at each step
-5. Test simulates user approval inputs (approve PR, confirm results)
-6. Test validates final state includes: generated PR, promotion PR, checkpoint history, results summary
-7. Test validates workflow can resume from checkpoint if interrupted mid-flow
-8. Test cleans up test data (branches, PRs) after completion
-9. Test runs successfully against real Azure services (Kusto cluster, Azure Repos test repository)
-10. Test execution time is within expected range (based on NFR timing requirements)
-11. Test documents any deviations or issues discovered during execution
-
-### Story 5.4: POC Validation with Multiple Detector Scenarios
-
-As a **product manager**,
-I want **the POC validated with 10+ different detector development scenarios**,
-so that **I can confirm the system meets success criteria and is ready for handoff**.
-
-#### Acceptance Criteria
-
-1. Test plan created with 10+ detector scenarios covering variety of ETW providers and schema types
-2. Each scenario executed end-to-end using the maf-agents workflow
-3. Execution metrics collected: total time, pattern matching accuracy, checkpoint recovery success rate
-4. User satisfaction feedback collected (simulated or from actual detector engineers)
-5. Issues log created documenting any failures, edge cases, or unexpected behavior
-6. Success criteria validated: 70% cycle time reduction achieved (target <2 hours per detector)
-7. Success criteria validated: 80%+ pattern matching accuracy achieved
-8. Success criteria validated: Checkpoint recovery works reliably
-9. Success criteria validated: User satisfaction rating 4/5 or higher
-10. POC validation report created summarizing findings, metrics, and recommendations
-11. Report includes lessons learned and recommendations for production implementation
-
-### Story 5.5: Documentation and Architecture Handoff
-
-As a **product manager**,
-I want **comprehensive documentation prepared for the architect and development team**,
-so that **the POC can be transitioned to production development**.
-
-#### Acceptance Criteria
-
-1. README.md updated with complete setup instructions, configuration guide, and usage examples
-2. Architecture documentation created describing workflow orchestration, agent interactions, and checkpoint system
-3. API documentation generated for all agents and shared modules (docstrings, Sphinx or similar)
-4. Known limitations documented (POC constraints, out-of-scope features, technical debt)
-5. Recommendations documented for production implementation (scalability, security, monitoring)
-6. Configuration guide created for Azure services (service principal setup, Key Vault, Kusto cluster, Azure Repos)
-7. Troubleshooting guide created for common issues and debugging steps
-8. Video walkthrough recorded demonstrating complete workflow execution (optional but recommended)
-9. Handoff meeting conducted with architect to review POC, answer questions, and align on next steps
-10. All code committed to Azure Repos with clean commit history and tagged as POC release
+- **IV1**: Run `npm run type-check` with zero TypeScript errors
+- **IV2**: Run `npm run lint` with zero linting errors
+- **IV3**: Verify existing workflow page renders without console errors
+- **IV4**: Confirm all existing shadcn/ui components still function correctly
 
 ---
 
-## Checklist Results Report
-
-### Executive Summary
-
-**Overall PRD Completeness**: 91% (PASS)
-**MVP Scope Appropriateness**: Just Right
-**Readiness for Architecture Phase**: ✅ **READY**
-
-The maf-agents PRD is comprehensive, well-structured, and ready for the architect to begin technical design. The PRD successfully translates the Project Brief into detailed functional requirements, user stories, and acceptance criteria. The 5-epic structure with 21 stories provides a clear, sequential implementation roadmap appropriate for a 2-3 week POC timeline.
-
-**Most Critical Strengths**:
-- Excellent functional requirements coverage (100% complete)
-- Outstanding epic and story structure (100% complete, properly sequenced)
-- Strong technical guidance with clear constraints and rationale
-- Comprehensive acceptance criteria (5-13 per story, all testable)
-
-**Minor Gaps** (appropriate for POC scope):
-- No workflow diagram or visual representation
-- Out-of-scope features documented in Brief but not restated in PRD
-- Formal approval/stakeholder process not documented (acceptable for POC)
-
-### Category Analysis
-
-| Category                         | Status  | Critical Issues       |
-| -------------------------------- | ------- | --------------------- |
-| 1. Problem Definition & Context  | PASS    | None                  |
-| 2. MVP Scope Definition          | PASS    | Minor: No explicit out-of-scope section in PRD |
-| 3. User Experience Requirements  | PASS    | None                  |
-| 4. Functional Requirements       | PASS    | None                  |
-| 5. Non-Functional Requirements   | PASS    | None                  |
-| 6. Epic & Story Structure        | PASS    | None                  |
-| 7. Technical Guidance            | PASS    | None                  |
-| 8. Cross-Functional Requirements | PASS    | Minor: Data retention not specified (POC) |
-| 9. Clarity & Communication       | PARTIAL | Minor: No diagrams, no formal approval process |
-
-### Detailed Category Assessment
-
-#### 1. Problem Definition & Context (95% - PASS)
-✅ **Strengths**:
-- Clear problem statement with quantified impact (4-8 hours per detector)
-- Well-defined target users (Azure Detector Engineers) from Project Brief
-- Measurable success metrics (70% cycle time reduction, 90% pattern consistency)
-- Strong differentiation from existing solutions
-
-✅ **Complete**:
-- Problem articulation, user identification, impact quantification
-- Business goals with specific, measurable objectives
-- Success metrics tied to user and business value
-- Baseline measurements (6 hours current vs <2 hours target)
-
-#### 2. MVP Scope Definition (90% - PASS)
-✅ **Strengths**:
-- Core functionality clearly defined (7 workflow agents)
-- Features directly address problem statement
-- POC validation approach well-defined (Story 5.4)
-- Epic structure ties back to user needs
-
-⚠️ **Minor Gap**:
-- Out-of-scope features documented in Project Brief but not explicitly restated in PRD
-- **Recommendation**: Add brief "Out of Scope for POC" section referencing Brief
-
-✅ **Complete**:
-- Essential features vs nice-to-haves distinction clear
-- MVP success criteria defined
-- Timeline expectations set (2-3 weeks)
-
-#### 3. User Experience Requirements (90% - PASS)
-✅ **Strengths**:
-- Primary user flow (7-step workflow) clearly documented
-- Decision points and approval gates well-defined
-- Error handling and checkpoint recovery planned
-- Performance expectations from user perspective (NFR1-3)
-
-✅ **Complete**:
-- User journeys mapped sequentially
-- Critical path highlighted (ETW input → production promotion)
-- Platform compatibility specified (CLI, Linux primary)
-- Conversational interface requirements detailed
-
-**Note**: Accessibility N/A for CLI POC - appropriate
-
-#### 4. Functional Requirements (100% - PASS)
-✅ **Excellent**:
-- 25 comprehensive functional requirements covering all workflow steps
-- Requirements focus on WHAT not HOW
-- All requirements testable and verifiable
-- Clear dependencies identified (sequential workflow)
-- Consistent terminology throughout
-- User stories follow standard format with complete acceptance criteria
-
-✅ **Complete**:
-- Feature completeness, requirements quality, story structure all fully addressed
-- Local testability requirements defined in acceptance criteria
-- Stories sized appropriately (2-4 hour AI agent execution increments)
-
-#### 5. Non-Functional Requirements (88% - PASS)
-✅ **Strengths**:
-- Performance requirements clearly specified (NFR1-3: response times, query execution, PR creation)
-- Security requirements comprehensive (service principal auth, Key Vault, least privilege, audit logging)
-- Reliability requirements strong (checkpoint recovery 100% reliability, retry logic)
-- Technical constraints well-documented (Python 3.10+, Azure services, testing strategy)
-
-⚠️ **Partial** (appropriate for POC):
-- Scalability: Single-user POC scope
-- Load handling: Not critical for POC
-- Availability/SLA: Not specified for POC
-- Security testing: Mentioned but not detailed
-
-**Note**: Partial items are appropriate given POC scope and timeline
-
-#### 6. Epic & Story Structure (100% - PASS)
-✅ **Outstanding**:
-- 5 epics representing cohesive units of functionality
-- Epics properly sequenced with clear dependencies
-- Epic 1 establishes foundation (project setup, auth, checkpoint, orchestrator, health check)
-- 21 stories total, all appropriately sized
-- Stories are vertical slices delivering complete functionality
-- First epic completeness excellent (all setup, scaffolding, infrastructure)
-- Every story includes comprehensive acceptance criteria (5-13 criteria each)
-
-✅ **Story Sequencing Excellence**:
-- Epic 1: Foundation & Workflow Orchestration (5 stories) - Establishes framework
-- Epic 2: ETW Input & Schema Discovery (4 stories) - First workflow agents
-- Epic 3: Code Generation & PR Management (5 stories) - Core automation value
-- Epic 4: Deployment Verification & Results Analysis (2 stories) - Feedback loop
-- Epic 5: Production Promotion & POC Validation (5 stories) - Completion & validation
-
-#### 7. Technical Guidance (95% - PASS)
-✅ **Strengths**:
-- Architecture direction clear (monorepo, stateless with checkpoints, sequential orchestration)
-- Technical constraints well-communicated (must use Azure Repos, Azure Kusto, Microsoft Agent Framework)
-- Integration points identified (Azure DevOps REST API, Kusto Python SDK)
-- Security requirements articulated (service principal, Key Vault, least privilege)
-- Testing strategy appropriate (unit + integration for POC)
-- Trade-offs documented (monorepo rationale, stateless design benefits)
-
-✅ **Complete**:
-- Decision framework for technical choices provided
-- Rationale for primary approaches documented
-- Non-negotiable requirements highlighted (REQUIRED markers)
-- Implementation considerations (logging, error handling, config management)
-
-#### 8. Cross-Functional Requirements (85% - PASS)
-✅ **Strengths**:
-- Data entities identified (workflow state, checkpoints, ETW schema, PR data)
-- Storage requirements specified (Azure Table Storage for checkpoints)
-- Integration requirements comprehensive (Azure Repos, Azure Kusto with auth)
-- API requirements documented (REST API, Python SDKs)
-- Integration testing outlined in stories
-
-⚠️ **Minor Gaps** (appropriate for POC):
-- Data retention policies not specified
-- Data quality requirements minimal
-- Support requirements not detailed
-
-**Note**: These gaps are appropriate for POC scope
-
-#### 9. Clarity & Communication (75% - PARTIAL)
-✅ **Strengths**:
-- Clear, consistent language throughout
-- Well-structured and organized (logical section flow)
-- Technical terms explained where necessary
-- Documentation versioned (Change Log included)
-- Stakeholder input incorporated from Project Brief
-
-⚠️ **Minor Gaps**:
-- No workflow diagrams or visual representations
-- No formal approval process documented
-- No communication plan for updates
-
-**Recommendations**:
-- Add simple workflow sequence diagram showing 7 agents
-- Acceptable to skip formal approval process for internal POC
-
-### Top Issues by Priority
-
-#### BLOCKERS: None ✅
-
-No blocking issues identified. PRD is ready for architect handoff.
-
-#### HIGH: None
-
-No high-priority issues.
-
-#### MEDIUM: Would Improve Clarity
-
-1. **Add Workflow Diagram**: Simple sequence diagram showing main orchestrator → 7 agents → checkpoint flow
-   - **Impact**: Improves architectural understanding
-   - **Effort**: 15-30 minutes
-   - **Action**: Optional enhancement, not required for architect to proceed
-
-2. **Explicit Out-of-Scope Section**: Add brief section listing deferred features
-   - **Impact**: Reinforces MVP boundaries
-   - **Effort**: 5-10 minutes
-   - **Action**: Reference Project Brief section or add 3-5 bullet list
-
-#### LOW: Nice to Have
-
-1. **Formal Stakeholder Approval Process**: Document if needed for organizational governance
-   - **Impact**: Minimal for POC
-   - **Action**: Skip for POC unless required
-
-### MVP Scope Assessment
-
-#### Scope Appropriateness: ✅ Just Right
-
-**Why This is Appropriate MVP Scope**:
-- **Focused**: 7 agents delivering end-to-end workflow, no scope creep
-- **Valuable**: Automates complete detector lifecycle (ETW input → production promotion)
-- **Achievable**: 21 stories × 2-4 hours = 42-84 hours development (fits 2-3 week timeline)
-- **Testable**: POC validation story (5.4) with 10+ scenarios validates success criteria
-- **Learning-Oriented**: Delivers enough functionality to validate Microsoft Agent Framework approach
-
-**Features Appropriately Scoped**:
-- ✅ Pattern learning from historical PRs (core differentiator, must include)
-- ✅ Checkpoint recovery system (validates framework resilience, must include)
-- ✅ Human-in-the-loop approval gates (quality control, must include)
-- ✅ All 7 workflow agents (demonstrates end-to-end automation value)
-
-**Features Appropriately Deferred** (documented in Brief):
-- ✅ Multi-detector batch processing (post-MVP scaling)
-- ✅ Advanced error remediation / auto-fix (post-MVP intelligence)
-- ✅ Custom workflow configuration UI (post-MVP flexibility)
-- ✅ Performance optimization for large-scale queries (post-MVP scaling)
-
-**No Recommended Cuts**: Scope is minimal and justified
-
-**No Missing Essentials**: All core workflow steps covered
-
-#### Complexity Assessment
-
-**Moderate Complexity Areas** (appropriately scoped):
-- Pattern learning from PRs (Story 3.2-3.3): Core value, cannot defer
-- Checkpoint state management (Story 1.3): Framework validation goal
-- Deployment detection with polling (Story 4.1): Important feedback loop
-
-**Complexity Mitigation in PRD**:
-- Clear acceptance criteria reduce ambiguity
-- Integration tests validate complex Azure interactions
-- Story 1.5 (health check) validates framework setup early
-- Fallback strategies mentioned (e.g., pattern analyzer falls back to templates if insufficient PR history)
-
-#### Timeline Realism: ✅ Realistic
-
-**Estimated Effort**:
-- 21 stories × 3 hours average = ~63 hours
-- Single developer, part-time (4 hours/day) = ~16 days = 3+ weeks
-- **Assessment**: Aligns with 2-3 week POC timeline
-
-**Risk Buffer**:
-- POC validation (Story 5.4) is flexible in scope
-- Documentation (Story 5.5) can be time-boxed
-- First epic validates framework quickly (reduces downstream risk)
-
-### Technical Readiness for Architecture Phase
-
-#### Clarity of Technical Constraints: ✅ Excellent
-
-**Well-Defined Constraints**:
-- Must use Microsoft Agent Framework Python SDK (NFR4)
-- Must use Azure Repos exclusively (NFR5)
-- Must use Azure Kusto exclusively (NFR6)
-- Python 3.10+ (NFR13)
-- Monorepo structure with specific directory layout
-- Sequential workflow orchestration pattern
-- Checkpoint persistence to Azure Table Storage
-
-**Architect Has Clear Boundaries**: Yes, no ambiguity on technology choices
-
-#### Identified Technical Risks: ✅ Well-Documented
-
-**Risks from Project Brief** (architect should reference):
-1. Framework maturity (limited examples, immature Python APIs)
-2. Pattern learning quality (insufficient PR signal)
-3. Kusto query performance (large schema queries)
-4. Deployment detection reliability (PR merge lag)
-
-**Mitigation Strategies Provided**:
-- Start with rule-based templates for pattern learning
-- Optimize Kusto queries upfront
-- Implement retry logic with exponential backoff
-- Health check agent validates Azure connectivity early
-
-#### Areas Needing Architect Investigation: ✅ Appropriately Flagged
-
-**Explicit Investigation Needs**:
-1. **Microsoft Agent Framework checkpoint persistence** best practices (Story 1.3, 1.6)
-2. **Azure Repos API** rate limits and retry policies
-3. **Azure Kusto Python SDK** error handling patterns and connection management
-4. **PR pattern extraction** techniques (AST parsing vs regex vs LLM-based)
-
-**Architect Should Determine**:
-- Checkpoint state schema design (what to persist, granularity)
-- Error handling strategy for partial workflow failures
-- Authentication pattern (user token vs service principal for long-running workflows)
-- Configuration management approach (env vars vs config files vs Azure App Configuration)
-
-### Recommendations
-
-#### For Immediate Action: None Required ✅
-
-The PRD is ready for architect handoff without changes.
-
-#### Optional Enhancements (if time permits):
-
-1. **Add Workflow Sequence Diagram** (15-30 min)
-   - Simple visual showing: User → Main Orchestrator → 7 Agents (with checkpoint saves)
-   - Helps architect visualize orchestration flow
-   - **Priority**: LOW - diagram would be nice but architect can proceed without it
-
-2. **Add "Out of Scope" Section** (5-10 min)
-   - Copy deferred features from Project Brief to PRD for completeness
-   - **Priority**: LOW - architect can reference Brief
-
-#### Suggested Next Steps:
-
-1. ✅ **Hand off to Architect** - PRD is ready
-2. **Architect Review** (1-2 hours):
-   - Read PRD + Project Brief
-   - Investigate Microsoft Agent Framework docs
-   - Design checkpoint state schema
-   - Define error handling strategy
-   - Create architecture document
-3. **Architecture Review Meeting** (30-60 min):
-   - Align on technical approach
-   - Resolve open questions from Brief
-   - Confirm timeline feasibility
-4. **Begin Development** - Start with Epic 1, Story 1.1
-
-### Final Decision
-
-✅ **READY FOR ARCHITECT**
-
-The PRD and epics are comprehensive, properly structured, and ready for architectural design. The architect has everything needed to:
-- Understand the problem and solution approach
-- Design the technical architecture
-- Make informed technology decisions within clear constraints
-- Create detailed implementation guidance for development
-
-**Confidence Level**: High - No blocking issues, minor gaps are appropriate for POC scope
-
-**Next Action**: Execute architect handoff prompt from "Next Steps" section
+### Story 1.2: Backend REST API Integration
+
+As a **user**,
+I want the frontend to connect to the real backend API instead of using mock data,
+so that workflow operations persist and reflect actual system state.
+
+#### Acceptance Criteria
+
+1. **AC1**: `apiClient` in `lib/api-client.ts` is enhanced with comprehensive error handling and retry logic
+2. **AC2**: Environment variables (`NEXT_PUBLIC_API_URL`) are properly configured for dev and production
+3. **AC3**: Workflow creation, retrieval, and deletion operations use real backend endpoints
+4. **AC4**: Health check endpoint is called on app initialization to verify backend connectivity
+5. **AC5**: Failed API requests display user-friendly error messages (not raw error objects)
+6. **AC6**: API client implements 3-retry logic with exponential backoff for failed requests
+7. **AC7**: All API responses are properly typed using TypeScript interfaces
+8. **AC8**: Loading states are displayed during all async API operations
+
+#### Integration Verification
+
+- **IV1**: Start backend server and confirm frontend health check succeeds
+- **IV2**: Create a new workflow via API and verify it appears in backend state
+- **IV3**: Simulate backend downtime and verify error handling displays user-friendly message
+- **IV4**: Verify API retry logic attempts 3 retries before failing
 
 ---
 
-## Next Steps
+### Story 1.3: WebSocket Integration for Real-Time Updates
 
-### UX Expert Prompt
+As a **user**,
+I want to receive real-time workflow status updates without refreshing the page,
+so that I can see workflow progress as it happens.
 
-_Note: This POC uses a CLI/Terminal conversational interface. If a UX expert needs to design a web or chat-based UI post-POC, the following prompt can be used:_
+#### Acceptance Criteria
 
-"Please review the maf-agents PRD and design a conversational UI that guides users through the 7-step detector development workflow. Focus on clear progress indication, approval gates with PR preview, and results visualization. Consider Slack/Teams integration for notifications and approvals."
+1. **AC1**: WebSocket connection is established when a workflow is created or loaded
+2. **AC2**: Real-time workflow status updates (step changes, completions, failures) are received via WebSocket
+3. **AC3**: WebSocket messages update the `WorkflowContext` state triggering UI re-renders
+4. **AC4**: WebSocket connection implements automatic reconnection with exponential backoff (max 30 seconds)
+5. **AC5**: Connection status indicator shows "Connected" (green) or "Disconnected" (gray) in UI
+6. **AC6**: WebSocket cleanup occurs when component unmounts or workflow changes
+7. **AC7**: Failed WebSocket connections fall back to periodic polling (every 5 seconds)
+8. **AC8**: WebSocket message parsing errors are logged and don't crash the application
 
-### Architect Prompt
+#### Integration Verification
 
-"Please review the maf-agents PRD and Project Brief, then enter **architecture creation mode**. Design the technical architecture for the POC including:
+- **IV1**: Connect to backend and verify WebSocket establishes connection (check browser DevTools)
+- **IV2**: Trigger workflow step change from backend and verify UI updates in real-time
+- **IV3**: Simulate network interruption and verify automatic reconnection occurs
+- **IV4**: Close backend WebSocket server and verify fallback to polling activates
 
-1. **Workflow orchestration architecture** using Microsoft Agent Framework sequential pattern with checkpoint system
-2. **Agent implementation patterns** for the 7 sub-workflow agents (ETW Input, Schema Discovery, Code Generator, Approval Gate, Deployment Verification, Results Analysis, Production Promotion)
-3. **Azure integrations architecture** for Azure Repos (branch/commit/PR operations) and Azure Kusto (query execution)
-4. **Authentication and security architecture** using Azure AD service principals and Key Vault
-5. **State management and checkpoint persistence** using Azure Table Storage
-6. **Error handling and retry strategies** for Azure API interactions
-7. **Testing strategy** for unit and integration testing
-8. **Configuration management** for Kusto query templates and Azure resource identifiers
+---
 
-Provide detailed technical specifications, code structure recommendations, key design decisions, and implementation guidance for the development team. Ensure the architecture supports the 2-3 week POC timeline with a single developer."
+### Story 1.4: Enhanced Chat Interface with Backend Integration
+
+As a **user**,
+I want to interact with the detector triage agent through a production-quality chat interface,
+so that I can naturally describe my detector requirements and receive guided assistance.
+
+#### Acceptance Criteria
+
+1. **AC1**: Chat messages are sent to backend triage agent via `submitInput` API call
+2. **AC2**: Agent responses are received via WebSocket and displayed in chat interface
+3. **AC3**: Chat interface supports markdown rendering for formatted agent responses
+4. **AC4**: Message history is maintained in component state and persists during workflow session
+5. **AC5**: Chat input is disabled with loading spinner while waiting for agent response
+6. **AC6**: Long agent responses are properly formatted with scrollable message area
+7. **AC7**: Timestamps are displayed for each message in human-readable format
+8. **AC8**: Chat history scrolls to bottom automatically when new messages arrive
+
+#### Integration Verification
+
+- **IV1**: Send chat message and verify it appears in backend workflow logs
+- **IV2**: Trigger agent response from backend and verify it renders in UI with markdown formatting
+- **IV3**: Send multiple rapid messages and verify UI handles queueing gracefully
+- **IV4**: Verify chat history persists when navigating away and returning to workflow page
+
+---
+
+### Story 1.5: Workflow Step Components Integration
+
+As a **user**,
+I want all 9 workflow steps to display appropriate UI components connected to the backend,
+so that I can complete the entire detector development workflow through the web interface.
+
+#### Acceptance Criteria
+
+1. **AC1**: ETW Input Form (`step 2`) submits data to backend and advances workflow
+2. **AC2**: Code Review Approval (`step 4`) displays generated PR details and submits approval/rejection
+3. **AC3**: Results Confirmation (`step 6`) displays detector results from backend and accepts user confirmation
+4. **AC4**: Production Promotion Approval (`step 8`) shows promotion details and handles approval
+5. **AC5**: WorkflowStepper component shows real-time step progress based on backend state
+6. **AC6**: Each step displays loading state while backend processes executor
+7. **AC7**: Step-specific errors are displayed with actionable error messages
+8. **AC8**: Completed steps show success indicators; failed steps show error states
+
+#### Integration Verification
+
+- **IV1**: Complete entire workflow from step 1-9 and verify each step advances correctly
+- **IV2**: Reject approval at step 4 and verify workflow handles rejection gracefully
+- **IV3**: Trigger failure at step 3 (schema discovery) and verify error is displayed to user
+- **IV4**: Verify WorkflowStepper visual state matches backend workflow state at each step
+
+---
+
+### Story 1.6: Session Persistence and Recovery
+
+As a **user**,
+I want my workflow session to persist when I refresh the page or close the browser,
+so that I don't lose progress if my browser crashes or I navigate away accidentally.
+
+#### Acceptance Criteria
+
+1. **AC1**: Active workflow ID is saved to browser localStorage on workflow creation
+2. **AC2**: Workflow state is restored from localStorage on page load if workflow ID exists
+3. **AC3**: Backend API is queried to fetch latest workflow status on page restore
+4. **AC4**: Chat message history is restored from backend data or localStorage
+5. **AC5**: WorkflowStepper displays correct step based on restored state
+6. **AC6**: Completed workflows are removed from localStorage after 24 hours
+7. **AC7**: Failed workflows display restoration option with ability to start fresh
+8. **AC8**: Multiple concurrent workflows are supported with session isolation
+
+#### Integration Verification
+
+- **IV1**: Create workflow, advance to step 3, refresh page, verify state restores correctly
+- **IV2**: Create workflow, close browser, reopen, verify workflow can be resumed
+- **IV3**: Create 3 workflows, verify each maintains isolated state in localStorage
+- **IV4**: Complete workflow, wait 24 hours (or manipulate timestamp), verify cleanup occurs
+
+---
+
+### Story 1.7: Dashboard Landing Page
+
+As a **user**,
+I want a dashboard that shows all active workflows, system health, and workflow history,
+so that I can monitor detector development activity and access past workflows.
+
+#### Acceptance Criteria
+
+1. **AC1**: Dashboard page (`/dashboard`) displays list of all workflows from backend API
+2. **AC2**: Each workflow card shows: ID (truncated), status badge, current step, last updated timestamp
+3. **AC3**: Workflows are filterable by status (all, running, completed, failed)
+4. **AC4**: Clicking workflow card navigates to workflow detail view
+5. **AC5**: System health panel shows: backend connection status, total workflows, active workflows
+6. **AC6**: Dashboard auto-refreshes every 10 seconds to show latest data
+7. **AC7**: "Create New Workflow" button navigates to `/workflow` page
+8. **AC8**: Empty state message is displayed when no workflows exist
+
+#### Integration Verification
+
+- **IV1**: Call `/api/workflows` endpoint and verify dashboard displays all workflows
+- **IV2**: Create new workflow and verify it appears in dashboard within 10 seconds
+- **IV3**: Filter workflows by "completed" status and verify only completed workflows show
+- **IV4**: Verify system health panel shows accurate connection status and workflow counts
+
+---
+
+### Story 1.8: Workflow History Detail View
+
+As a **user**,
+I want to view detailed information about completed workflows,
+so that I can review past detector development sessions and access generated artifacts.
+
+#### Acceptance Criteria
+
+1. **AC1**: Workflow detail page (`/dashboard/workflow/[id]`) fetches workflow data from backend
+2. **AC2**: Step-by-step execution timeline is displayed showing completion time for each step
+3. **AC3**: Chat conversation history is displayed in chronological order
+4. **AC4**: Generated PR links are displayed with click-through to Azure DevOps
+5. **AC5**: ETW input data (providerGuid, ruleId) is displayed in summary section
+6. **AC6**: Results analysis data from step 7 is formatted and displayed
+7. **AC7**: Workflow status (completed/failed) is prominently displayed with status badge
+8. **AC8**: "Back to Dashboard" button returns to dashboard page
+
+#### Integration Verification
+
+- **IV1**: Complete full workflow, navigate to detail view, verify all steps are shown
+- **IV2**: Verify chat history matches actual conversation from workflow execution
+- **IV3**: Click PR link and verify it opens correct Azure DevOps pull request
+- **IV4**: View failed workflow detail and verify error information is displayed
+
+---
+
+### Story 1.9: ETW Provider Information Dashboard
+
+As a **user**,
+I want to view ETW provider information and active detectors in the dashboard,
+so that I can understand what providers are being monitored and their current state.
+
+#### Acceptance Criteria
+
+1. **AC1**: Dashboard displays section for "Active Detectors" with provider GUID and rule ID
+2. **AC2**: Active detectors are fetched from backend API endpoint
+3. **AC3**: Each detector card shows: provider name, GUID, rule ID, deployment status, last updated
+4. **AC4**: Detector cards are searchable/filterable by provider GUID or name
+5. **AC5**: Clicking detector card shows detector details (source code link, results link)
+6. **AC6**: Empty state is shown when no active detectors exist
+7. **AC7**: Provider information is cached and refreshed every 30 seconds
+8. **AC8**: Loading skeleton is displayed while fetching provider data
+
+#### Integration Verification
+
+- **IV1**: Backend provides `/api/detectors` endpoint with mock data for at least 3 detectors
+- **IV2**: Verify dashboard displays all active detectors from backend
+- **IV3**: Search for specific provider GUID and verify filtering works
+- **IV4**: Complete workflow creating new detector, verify it appears in active detectors list
+
+---
+
+### Story 1.10: Error Handling and User Feedback
+
+As a **user**,
+I want clear, actionable error messages and loading indicators throughout the application,
+so that I understand what's happening and what to do when problems occur.
+
+#### Acceptance Criteria
+
+1. **AC1**: All API errors display user-friendly messages (no raw stack traces shown to user)
+2. **AC2**: Network errors show "Connection failed - please check your network" message
+3. **AC3**: Backend unavailable shows "Backend service unavailable - please try again later"
+4. **AC4**: Workflow step failures display specific error with retry option
+5. **AC5**: All async operations show loading spinners or progress indicators
+6. **AC6**: Error boundary catches React errors and displays fallback UI with "Report Issue" button
+7. **AC7**: Toast notifications are used for non-critical feedback (workflow created, action completed)
+8. **AC8**: Critical errors are logged to browser console (dev) and Application Insights (prod)
+
+#### Integration Verification
+
+- **IV1**: Stop backend server and verify user-friendly "service unavailable" message appears
+- **IV2**: Trigger React component error and verify error boundary catches it with fallback UI
+- **IV3**: Submit invalid ETW input data and verify validation error message is clear
+- **IV4**: Check Application Insights logs in production for error tracking
+
+---
+
+### Story 1.11: Azure Deployment Configuration
+
+As a **DevOps engineer**,
+I want the frontend configured for Azure deployment with proper environment settings,
+so that the application can be deployed to production and connect to the backend.
+
+#### Acceptance Criteria
+
+1. **AC1**: `next.config.ts` is configured for Azure Static Web Apps or App Service deployment
+2. **AC2**: Environment variables are documented in README with examples
+3. **AC3**: Production build (`npm run build`) completes successfully with zero errors
+4. **AC4**: Azure deployment configuration files are created (if needed for Static Web Apps)
+5. **AC5**: CORS configuration in backend allows production frontend domain
+6. **AC6**: Application Insights integration is configured for production monitoring
+7. **AC7**: Deployment documentation includes step-by-step Azure deployment guide
+8. **AC8**: Health check on app startup verifies backend connectivity and displays status
+
+#### Integration Verification
+
+- **IV1**: Run production build locally with `npm run build && npm start`
+- **IV2**: Deploy to Azure Static Web Apps staging environment and verify functionality
+- **IV3**: Verify environment variables are correctly loaded from Azure App Settings
+- **IV4**: Check Application Insights for successful telemetry data in production
+
+---
+

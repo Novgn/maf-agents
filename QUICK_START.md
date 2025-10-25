@@ -49,6 +49,7 @@ npm run dev
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Run both servers |
+| `./dev.sh` | Run both (better Ctrl+C handling) |
 | `npm run dev:server` | Run only backend |
 | `npm run dev:client` | Run only frontend |
 | `make dev` | Run both (alternative) |
@@ -57,6 +58,19 @@ npm run dev
 ---
 
 ## Troubleshooting
+
+### Ctrl+C Not Stopping Servers
+
+If `npm run dev` doesn't properly stop both servers with Ctrl+C, use the shell script instead:
+
+```bash
+./dev.sh
+```
+
+Or manually kill processes:
+```bash
+lsof -ti:8000,3000 | xargs kill -9
+```
 
 ### Port Already in Use
 
