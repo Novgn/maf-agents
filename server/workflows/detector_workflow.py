@@ -920,7 +920,7 @@ Please review the pull request before proceeding."""
 async def _poll_pr_merge_status(
     workflow_data: dict[str, Any],
     broadcast_chat = None,
-    workflow_id: str = None,
+    workflow_id: str | None = None,
     poll_interval_seconds: int = 30,
     max_wait_minutes: int = 60,
 ) -> tuple[bool, str]:
@@ -1914,8 +1914,8 @@ The detector is ready for production deployment after this PR is merged."""
 
 
 async def build_detector_workflow(
-    workflow_id: str = None,
-    input_queue: asyncio.Queue = None,
+    workflow_id: str | None = None,
+    input_queue: asyncio.Queue | None = None,
     broadcast_func = None,
     broadcast_chat_func = None
 ):

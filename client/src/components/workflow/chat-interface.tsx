@@ -64,11 +64,40 @@ export function ChatInterface({
           <ScrollArea className="h-full px-6">
             <div className="space-y-4 py-4">
               {messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-center py-12">
-                  <Bot className="h-12 w-12 text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">
-                    Start the conversation to begin your detector development
+                <div className="flex flex-col items-center justify-center h-full text-center py-12 px-4">
+                  <Bot className="h-16 w-16 text-blue-500 mb-6" />
+                  <h3 className="text-lg font-semibold mb-2">Start Creating Your Detector</h3>
+                  <p className="text-muted-foreground mb-6 max-w-md">
+                    Describe the security event or behavior you want to detect. I'll help you create an ETW detector automatically.
                   </p>
+
+                  <div className="w-full max-w-2xl space-y-2">
+                    <p className="text-xs text-muted-foreground mb-2">Example prompts:</p>
+                    <button
+                      onClick={() => onSendMessage("Detect suspicious PowerShell execution with encoded commands")}
+                      className="w-full text-left p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors text-sm"
+                    >
+                      💻 Detect suspicious PowerShell execution with encoded commands
+                    </button>
+                    <button
+                      onClick={() => onSendMessage("Monitor for potential credential dumping activities")}
+                      className="w-full text-left p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors text-sm"
+                    >
+                      🔐 Monitor for potential credential dumping activities
+                    </button>
+                    <button
+                      onClick={() => onSendMessage("Track unusual network connections from system processes")}
+                      className="w-full text-left p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors text-sm"
+                    >
+                      🌐 Track unusual network connections from system processes
+                    </button>
+                    <button
+                      onClick={() => onSendMessage("Detect file exfiltration attempts to external storage")}
+                      className="w-full text-left p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors text-sm"
+                    >
+                      📁 Detect file exfiltration attempts to external storage
+                    </button>
+                  </div>
                 </div>
               ) : (
                 messages.map((message, index) => (

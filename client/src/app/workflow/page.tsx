@@ -16,20 +16,13 @@ function WorkflowPageContent() {
   const {
     workflowId,
     currentStep,
-    steps,
     error,
     latestMessage,
     createWorkflow,
     submitInput,
   } = useWorkflow(queryWorkflowId);
 
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      type: "agent",
-      content: "Hello! I'm here to help you create a new ETW detector. Let's start by understanding what you want to detect. What security event or behavior are you looking to monitor?",
-      timestamp: new Date().toISOString(),
-    },
-  ]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isLoadingResponse, setIsLoadingResponse] = useState(false);
   const [hasChatRestored, setHasChatRestored] = useState(false);
 
@@ -42,7 +35,7 @@ function WorkflowPageContent() {
       const session = loadWorkflowSession(workflowId);
       if (session?.chatHistory && session.chatHistory.length > 0) {
         console.log("Restoring chat history:", session.chatHistory.length, "messages");
-        // Legitimate use case: restoring persisted state from localStorage
+        // Valid: Restoring persisted state from localStorage when component mounts
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setChatMessages(session.chatHistory);
       }
@@ -79,7 +72,7 @@ function WorkflowPageContent() {
         metadata: (latestMessage.metadata as ChatMessage["metadata"]) || {},
       };
 
-      // Legitimate use case: subscribing to external WebSocket state and updating React state
+      // Valid: Subscribing to external WebSocket state and updating React state when messages arrive
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setChatMessages((prev) => [...prev, chatMessage]);
       setIsLoadingResponse(false);
@@ -113,8 +106,6 @@ function WorkflowPageContent() {
           data: latestMessage.data as Record<string, unknown> | undefined,
         },
       };
-      // Legitimate use case: subscribing to external WebSocket state and updating React state
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setChatMessages((prev) => [...prev, assistantMessage]);
       setIsLoadingResponse(false);
     }

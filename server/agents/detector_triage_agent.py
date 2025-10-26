@@ -93,28 +93,12 @@ When you have enough information OR the user approves an example, include "READY
         if self.input_queue is None:
             raise ValueError("input_queue is required for gather_requirements operation")
 
-        triage_prompt = "Hello! I'm here to help you create a new ETW detector. Tell me - what security concern or system behavior would you like to detect?"
-
         conversation_history = []
         requirements_complete = False
         turn_count = 0
-
-        # Initial agent response
-        response = await self.agent.run(triage_prompt)
-        agent_message = response.text
-        print(f"🤖 Agent: {agent_message}\n")
-        conversation_history.append({"role": "assistant", "content": agent_message})
-
-        # Broadcast agent message via WebSocket
-        if self.broadcast_func and self.workflow_id:
-            await self.broadcast_func(self.workflow_id, {
-                "type": "agent_message",
-                "message": agent_message,
-                "step_number": 1,
-            })
-
-        # Conversation loop
         detector_summary = ""
+
+        # Conversation loop - wait for user's first message instead of sending greeting
         while not requirements_complete and turn_count < max_turns:
             # Get user input from queue (WebSocket)
             try:
