@@ -6,7 +6,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Bot, Send, CheckCircle2, Circle } from "lucide-react";
-import { ChatMessage, ChatInterfaceProps } from "@/lib/types";
+import { ChatInterfaceProps } from "@/lib/types";
 import { RichMessageBubble } from "./rich-message-bubble";
 
 const WORKFLOW_PHASES = [
