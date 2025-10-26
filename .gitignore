@@ -35,6 +35,11 @@ env/
 server/.venv/
 server/venv/
 
+# Conda environments
+.conda-env/
+server/.conda-env/
+*.conda/
+
 # Testing
 .tox/
 .nox/
@@ -115,11 +120,20 @@ logs/
 # IDEs & OS
 # ============================================================================
 
-.vscode/
+# VS Code - commit workspace settings, ignore user-specific files
+.vscode/launch.json
+.vscode/tasks.json
+.vscode/*.code-snippets
+
+# JetBrains IDEs
 .idea/
+
+# Editor temp files
 *.swp
 *.swo
 *~
+
+# OS files
 .DS_Store
 .bmad-core/
 

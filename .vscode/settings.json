@@ -1,0 +1,17 @@
+{
+  "makefile.configureOnOpen": false,
+
+  // Python configuration - using conda environment in server directory
+  "python.defaultInterpreterPath": "${workspaceFolder}/server/.conda-env/bin/python",
+  "python.terminal.activateEnvironment": true,
+  "python.analysis.typeCheckingMode": "basic",
+
+  // Bicep support
+  "files.associations": {
+    "*.bicep": "bicep",
+    "*.bicepparam": "bicep"
+  },
+  "python-envs.defaultEnvManager": "ms-python.python:conda",
+  "python-envs.defaultPackageManager": "ms-python.python:conda",
+  "python-envs.pythonProjects": []
+}

@@ -1,0 +1,25 @@
+# Bicep Ignore File
+# Files and directories to exclude from Bicep builds
+
+# Documentation
+*.md
+README.md
+QUICKSTART.md
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.json
+!parameters/*.json
+
+# Logs
+*.log

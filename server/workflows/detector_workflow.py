@@ -40,6 +40,9 @@ checkpoint_dir = Path("./checkpoints")
 checkpoint_dir.mkdir(exist_ok=True)
 checkpoint_storage = FileCheckpointStorage(checkpoint_dir)
 
+# Global workflow context for WebSocket communication
+_workflow_context = {}
+
 
 # Define the 9 workflow agents as MAF executors
 # Each executor represents a step in the detector development workflow
@@ -106,8 +109,17 @@ async def detector_triage_executor(
     print("Let's understand what you want to detect...")
     print("="*70)
 
-    # Create the Detector Triage Agent
-    agent = await create_detector_triage_agent()
+    # Get conversation context
+    workflow_id = _workflow_context.get("workflow_id")
+    input_queue = _workflow_context.get("input_queue")
+    broadcast_func = _workflow_context.get("broadcast_func")
+
+    # Create the Detector Triage Agent with WebSocket support
+    agent = await create_detector_triage_agent(
+        input_queue=input_queue,
+        broadcast_func=broadcast_func,
+        workflow_id=workflow_id
+    )
 
     # Gather requirements through conversation
     triage_data = await agent.gather_requirements(max_turns=10)
@@ -1279,7 +1291,7 @@ async def production_promotion_executor(
     await ctx.yield_output(workflow_data)
 
 
-async def build_detector_workflow():
+async def build_detector_workflow(workflow_id: str = None, input_queue: asyncio.Queue = None, broadcast_func = None):
     """
     Build the detector development workflow using MAF WorkflowBuilder.
 
@@ -1288,7 +1300,19 @@ async def build_detector_workflow():
 
     Each executor sets status="success" or status="failed", and conditional routing
     ensures failed steps terminate the workflow.
+
+    Args:
+        workflow_id: Workflow identifier for conversation context
+        input_queue: AsyncIO queue for receiving user input
+        broadcast_func: Function to broadcast messages via WebSocket
     """
+    # Store context for agents to access
+    global _workflow_context
+    _workflow_context = {
+        "workflow_id": workflow_id,
+        "input_queue": input_queue,
+        "broadcast_func": broadcast_func,
+    }
     workflow = (
         WorkflowBuilder()
         .set_start_executor(detector_triage_executor)

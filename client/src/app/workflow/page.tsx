@@ -1,31 +1,30 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { useWorkflow } from "@/hooks/use-workflow";
-import { WorkflowStepper } from "@/components/workflow/workflow-stepper";
 import { ChatInterface } from "@/components/workflow/chat-interface";
 import { ChatMessage } from "@/lib/types";
 import { ETWInputForm } from "@/components/workflow/etw-input-form";
 import { ApprovalDialog } from "@/components/workflow/approval-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
-import { HealthIndicator } from "@/components/HealthIndicator";
+import { AlertCircle, Loader2 } from "lucide-react";
+import { loadWorkflowSession, saveWorkflowSession } from "@/lib/session-storage";
 
-export default function WorkflowPage() {
+function WorkflowPageContent() {
+  const searchParams = useSearchParams();
+  const queryWorkflowId = searchParams?.get("id");
+
+  // Pass query parameter to useWorkflow hook to load specific workflow
   const {
     workflowId,
-    status,
     currentStep,
     steps,
     error,
-    isConnected,
-    isReconnecting,
-    isUsingPolling,
     latestMessage,
     createWorkflow,
     submitInput,
-  } = useWorkflow();
+  } = useWorkflow(queryWorkflowId);
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
@@ -35,9 +34,38 @@ export default function WorkflowPage() {
     },
   ]);
   const [isLoadingResponse, setIsLoadingResponse] = useState(false);
+  const [hasChatRestored, setHasChatRestored] = useState(false);
 
   // Track the last processed message to prevent duplicates
   const lastProcessedMessageRef = useRef<Record<string, unknown> | null>(null);
+
+  // Restore chat history from session storage when workflow is restored
+  useEffect(() => {
+    if (workflowId && !hasChatRestored) {
+      const session = loadWorkflowSession(workflowId);
+      if (session?.chatHistory && session.chatHistory.length > 0) {
+        console.log("Restoring chat history:", session.chatHistory.length, "messages");
+        // Legitimate use case: restoring persisted state from localStorage
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setChatMessages(session.chatHistory);
+      }
+      setHasChatRestored(true);
+    }
+  }, [workflowId, hasChatRestored]);
+
+  // Save chat history to session storage whenever it changes
+  useEffect(() => {
+    if (workflowId && hasChatRestored && chatMessages.length > 0) {
+      const session = loadWorkflowSession(workflowId);
+      if (session) {
+        saveWorkflowSession({
+          ...session,
+          chatHistory: chatMessages,
+          lastUpdated: new Date().toISOString(),
+        });
+      }
+    }
+  }, [workflowId, chatMessages, hasChatRestored]);
 
   // Handle WebSocket messages containing agent chat responses
   useEffect(() => {
@@ -195,6 +223,7 @@ export default function WorkflowPage() {
             onSendMessage={handleSendMessage}
             isLoading={isLoadingResponse}
             placeholder="Describe what you want to detect..."
+            currentStep={currentStep}
           />
         );
 
@@ -346,130 +375,77 @@ export default function WorkflowPage() {
 
   return (
     <div className="container mx-auto py-8 space-y-6">
-      {/* Backend Health Check */}
-      <HealthIndicator />
-
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-4xl font-bold">Detector Development Workflow</h1>
-          <p className="text-muted-foreground mt-2">
-            Automated ETW detector development using AI agents
-          </p>
-        </div>
+      {/* Header - Simple and clean */}
+      <div>
+        <h1 className="text-3xl font-bold">Create New Detector</h1>
+        <p className="text-muted-foreground mt-1">
+          Chat with our AI agent to automatically generate an ETW detector
+        </p>
       </div>
 
-      {/* Error Display */}
+      {/* Error Display - Inline and subtle */}
       {error && (
-        <Card className="border-red-200 bg-red-50">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-red-600" />
-              <CardTitle className="text-red-900">Error</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <p className="text-red-800">{error}</p>
-          </CardContent>
-        </Card>
+        <div className="flex items-center gap-2 p-4 rounded-lg border border-red-200 bg-red-50">
+          <AlertCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
+          <p className="text-sm text-red-800">{error}</p>
+        </div>
       )}
 
-      {/* Workflow Status */}
-      {workflowId && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Workflow Status</CardTitle>
-              <div className="flex items-center gap-2">
-                {isConnected ? (
-                  <>
-                    <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
-                    <span className="text-sm font-medium text-green-700">Connected</span>
-                  </>
-                ) : isReconnecting ? (
-                  <>
-                    <Loader2 className="h-3 w-3 text-yellow-600 animate-spin" />
-                    <span className="text-sm font-medium text-yellow-700">Reconnecting...</span>
-                  </>
-                ) : isUsingPolling ? (
-                  <>
-                    <div className="h-2 w-2 bg-blue-500 rounded-full animate-pulse" />
-                    <span className="text-sm font-medium text-blue-700">Polling Mode</span>
-                  </>
-                ) : (
-                  <>
-                    <div className="h-2 w-2 bg-gray-400 rounded-full" />
-                    <span className="text-sm font-medium text-gray-600">Disconnected</span>
-                  </>
-                )}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <p className="text-sm text-muted-foreground">Workflow ID</p>
-                <p className="font-mono text-sm">{workflowId.slice(0, 8)}...</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Status</p>
-                <StatusBadge status={status} />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Current Step</p>
-                <p className="font-semibold">
-                  {currentStep > 0 ? `${currentStep}/9` : "Starting..."}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Stepper */}
-      {workflowId && <WorkflowStepper steps={steps} currentStep={currentStep} />}
-
-      {/* Step-Specific Content or Default Chat */}
-      {workflowId ? (
+      {/* Main Content - Always show chat interface for smooth flow */}
+      {workflowId && currentStep > 0 ? (
         renderStepContent()
       ) : (
         <ChatInterface
-          title="Start Your Detector Development"
-          description="Chat with our AI agent to begin creating a new ETW detector"
+          title="Let's get started"
+          description="Describe what you want to detect and I'll guide you through the process"
           messages={chatMessages}
           onSendMessage={async (message) => {
             // Auto-create workflow on first message if not exists
             if (!workflowId) {
-              await createWorkflow();
+              const newWorkflowId = await createWorkflow();
+              if (newWorkflowId) {
+                // Add user message to chat
+                const userMessage: ChatMessage = {
+                  role: "user",
+                  content: message,
+                  timestamp: new Date().toISOString(),
+                };
+                setChatMessages((prev) => [...prev, userMessage]);
+                setIsLoadingResponse(true);
+
+                try {
+                  // Submit to backend using the just-created workflow ID
+                  await submitInput("triage_message", { message }, newWorkflowId);
+                  setTimeout(() => {
+                    setIsLoadingResponse(false);
+                  }, 30000);
+                } catch (err) {
+                  setIsLoadingResponse(false);
+                  console.error("Failed to send message:", err);
+                }
+              }
+            } else {
+              // Workflow already exists, use normal flow
+              await handleSendMessage(message);
             }
-            await handleSendMessage(message);
           }}
           isLoading={isLoadingResponse}
           placeholder="Tell me what you want to detect..."
+          currentStep={currentStep}
         />
       )}
     </div>
   );
 }
 
-function StatusBadge({ status }: { status: string | null }) {
-  if (!status) {
-    return <Badge variant="outline">Unknown</Badge>;
-  }
-
-  const variants: Record<string, { className: string; icon: React.ReactNode }> = {
-    starting: { className: "bg-blue-100 text-blue-700", icon: <Loader2 className="h-3 w-3 animate-spin" /> },
-    running: { className: "bg-blue-100 text-blue-700", icon: <Loader2 className="h-3 w-3 animate-spin" /> },
-    completed: { className: "bg-green-100 text-green-700", icon: <CheckCircle2 className="h-3 w-3" /> },
-    failed: { className: "bg-red-100 text-red-700", icon: <AlertCircle className="h-3 w-3" /> },
-  };
-
-  const variant = variants[status] || { className: "bg-gray-100 text-gray-700", icon: null };
-
+export default function WorkflowPage() {
   return (
-    <Badge variant="outline" className={`${variant.className} gap-1`}>
-      {variant.icon}
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </Badge>
+    <Suspense fallback={
+      <div className="container mx-auto py-8 flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      </div>
+    }>
+      <WorkflowPageContent />
+    </Suspense>
   );
 }

@@ -3,7 +3,7 @@
 import { Component, ErrorInfo, ReactNode } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, RefreshCw, RotateCw, ExternalLink } from "lucide-react";
 
 /**
  * Props for the ErrorBoundary component.
@@ -73,8 +73,18 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       errorInfo,
     });
 
-    // In production, you would log to Application Insights here
-    // Example: logErrorToAppInsights(error, errorInfo);
+    // In production, log to Application Insights or monitoring service
+    if (process.env.NODE_ENV === "production") {
+      // TODO: Integrate with Application Insights
+      // appInsights.trackException({
+      //   exception: error,
+      //   properties: {
+      //     componentStack: errorInfo.componentStack,
+      //     userAgent: navigator.userAgent,
+      //   }
+      // });
+      console.error("Production error logged:", error.message);
+    }
   }
 
   /**
@@ -93,6 +103,21 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
    */
   handleReload = (): void => {
     window.location.reload();
+  };
+
+  /**
+   * Opens GitHub issue page with pre-filled error details.
+   */
+  handleReportIssue = (): void => {
+    const { error, errorInfo } = this.state;
+    const issueBody = encodeURIComponent(
+      `**Error Message:**\n${error?.message || "Unknown error"}\n\n` +
+      `**Stack Trace:**\n${error?.stack || "No stack trace"}\n\n` +
+      `**Component Stack:**\n${errorInfo?.componentStack || "No component stack"}\n\n` +
+      `**Browser:**\n${navigator.userAgent}`
+    );
+    const issueUrl = `https://github.com/your-org/maf-agents/issues/new?title=UI Error: ${encodeURIComponent(error?.message || "Unknown")}&body=${issueBody}`;
+    window.open(issueUrl, "_blank");
   };
 
   render(): ReactNode {
@@ -137,17 +162,30 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                 </details>
               )}
 
-              <div className="flex gap-3">
-                <Button onClick={this.handleReset} variant="outline">
+              <div className="flex flex-wrap gap-3">
+                <Button onClick={this.handleReset} variant="outline" className="gap-2">
+                  <RefreshCw className="h-4 w-4" />
                   Try Again
                 </Button>
-                <Button onClick={this.handleReload}>
+                <Button onClick={this.handleReload} className="gap-2">
+                  <RotateCw className="h-4 w-4" />
                   Reload Page
+                </Button>
+                <Button onClick={this.handleReportIssue} variant="outline" className="gap-2">
+                  <ExternalLink className="h-4 w-4" />
+                  Report Issue
                 </Button>
               </div>
 
               <p className="text-sm text-gray-600">
-                If this problem persists, please contact support or try clearing your browser cache.
+                If this problem persists, please{" "}
+                <button
+                  onClick={this.handleReportIssue}
+                  className="underline hover:text-gray-900"
+                >
+                  report it on GitHub
+                </button>
+                {" "}or contact support.
               </p>
             </CardContent>
           </Card>

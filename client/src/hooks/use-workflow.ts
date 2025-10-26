@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { toast } from "sonner";
 import { apiClient } from "@/lib/api-client";
 import { WebSocketManager } from "@/lib/websocket-manager";
 import { WorkflowStep, StepStatus, WorkflowContextType } from "@/lib/types";
 import { createDefaultSteps } from "@/components/workflow/workflow-stepper";
 import {
   saveWorkflowSession,
-  getLatestWorkflowSession,
+  removeWorkflowSession,
   cleanupOldSessions,
 } from "@/lib/session-storage";
 
@@ -15,6 +16,7 @@ import {
  * Custom hook for managing workflow state and WebSocket connections.
  * Handles workflow creation, input submission, and real-time status updates.
  *
+ * @param initialWorkflowId - Optional workflow ID to load on mount (e.g., from query parameter)
  * @returns {WorkflowContextType} Workflow state and control functions
  *
  * @example
@@ -26,9 +28,12 @@ import {
  *
  * // Submit user input
  * await submitInput("triage_message", { message: "Hello" });
+ *
+ * // Load a specific workflow from URL
+ * const { workflowId } = useWorkflow("abc123");
  * ```
  */
-export function useWorkflow(): WorkflowContextType {
+export function useWorkflow(initialWorkflowId?: string | null): WorkflowContextType {
   const [workflowId, setWorkflowId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState<number>(0);
@@ -51,14 +56,14 @@ export function useWorkflow(): WorkflowContextType {
     // Clean up old sessions first
     cleanupOldSessions();
 
-    // Try to restore latest session
-    const latestSession = getLatestWorkflowSession();
-    if (latestSession) {
-      console.log("Restoring workflow session:", latestSession.workflowId);
+    // Only restore a workflow if explicitly requested via query parameter
+    // Don't auto-restore for new workflow creation flow
+    if (initialWorkflowId) {
+      console.log("Loading workflow from query parameter:", initialWorkflowId);
 
-      // Query backend for latest state
+      // Query backend for latest state (backend is source of truth)
       apiClient
-        .getWorkflowStatus(latestSession.workflowId)
+        .getWorkflowStatus(initialWorkflowId)
         .then((backendState) => {
           // Backend is source of truth
           setWorkflowId(backendState.workflow_id);
@@ -80,18 +85,25 @@ export function useWorkflow(): WorkflowContextType {
           if (backendState.error) {
             setError(backendState.error);
           }
+
+          // Save to session storage
+          saveWorkflowSession({
+            workflowId: backendState.workflow_id,
+            lastUpdated: new Date().toISOString(),
+            currentStep: backendState.step_number || 0,
+            status: backendState.status,
+          });
         })
         .catch((err) => {
-          console.error("Failed to restore workflow from backend:", err);
-          // Still set the workflow ID from localStorage to attempt connection
-          setWorkflowId(latestSession.workflowId);
-          setCurrentStep(latestSession.currentStep);
-          setStatus(latestSession.status);
+          console.error("Failed to load workflow from backend:", err);
+          // Remove stale session data if workflow doesn't exist
+          removeWorkflowSession(initialWorkflowId);
+          setError("Failed to load workflow. It may have been deleted.");
         });
     }
 
     hasRestoredSession.current = true;
-  }, []);
+  }, [initialWorkflowId]);
 
   // Save session state to localStorage whenever it changes
   useEffect(() => {
@@ -150,10 +162,12 @@ export function useWorkflow(): WorkflowContextType {
       // Handle specific event types
       if (data.type === "workflow_complete") {
         updateStepStatus(9, "completed");
+        toast.success("Workflow completed successfully!");
       } else if (data.type === "workflow_failed") {
         const errorMessage =
           typeof data.error === "string" ? data.error : "Workflow failed";
         setError(errorMessage);
+        toast.error(`Workflow failed: ${errorMessage}`);
         if (data.step_number && typeof data.step_number === "number") {
           updateStepStatus(data.step_number, "failed");
         }
@@ -165,16 +179,23 @@ export function useWorkflow(): WorkflowContextType {
   /**
    * Creates a new workflow session.
    * Clears any previous errors and initializes workflow state.
+   * @returns The workflow ID of the created workflow, or null if creation failed
    */
-  const createWorkflow = useCallback(async () => {
+  const createWorkflow = useCallback(async (): Promise<string | null> => {
+    const toastId = toast.loading("Creating workflow...");
     setIsCreatingWorkflow(true);
     try {
       setError(null);
       const response = await apiClient.createWorkflow();
       setWorkflowId(response.workflow_id);
       setStatus(response.status);
+      toast.success("Workflow created successfully!", { id: toastId });
+      return response.workflow_id;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create workflow");
+      const errorMessage = err instanceof Error ? err.message : "Failed to create workflow";
+      setError(errorMessage);
+      toast.error(errorMessage, { id: toastId });
+      return null;
     } finally {
       setIsCreatingWorkflow(false);
     }
@@ -184,18 +205,30 @@ export function useWorkflow(): WorkflowContextType {
    * Submits user input to the current workflow step.
    * @param inputType - Type of input (e.g., "triage_message", "etw_input", "approval")
    * @param data - Input data payload
+   * @param explicitWorkflowId - Optional explicit workflow ID (used when state hasn't updated yet)
    */
-  const submitInput = useCallback(async (inputType: string, data: Record<string, unknown>) => {
-    if (!workflowId) {
-      setError("No workflow ID");
+  const submitInput = useCallback(async (
+    inputType: string,
+    data: Record<string, unknown>,
+    explicitWorkflowId?: string
+  ) => {
+    const targetWorkflowId = explicitWorkflowId || workflowId;
+
+    if (!targetWorkflowId) {
+      const errorMessage = "No workflow ID";
+      setError(errorMessage);
+      toast.error(errorMessage);
       return;
     }
 
     setIsSubmittingInput(true);
     try {
-      await apiClient.submitInput(workflowId, { input_type: inputType, data });
+      await apiClient.submitInput(targetWorkflowId, { input_type: inputType, data });
+      toast.success("Input submitted successfully");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to submit input");
+      const errorMessage = err instanceof Error ? err.message : "Failed to submit input";
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setIsSubmittingInput(false);
     }

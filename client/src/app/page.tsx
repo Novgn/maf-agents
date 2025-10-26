@@ -1,350 +1,215 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Link from "next/link";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Detector } from "@/lib/types";
+import { DetectorCard } from "@/components/dashboard/detector-card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import {
-  Activity,
-  CheckCircle2,
-  Clock,
-  TrendingUp,
-  Zap,
-  ArrowRight,
-  Play,
-  AlertCircle
-} from "lucide-react";
-import { apiClient } from "@/lib/api-client";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Plus, Inbox, Search, Shield, Activity, TrendingUp, AlertTriangle } from "lucide-react";
 
-interface WorkflowSummary {
-  workflow_id: string;
-  status: string;
-  current_step: string;
-  created_at: string;
-  updated_at: string;
-}
+// Placeholder detector data for visualization
+const PLACEHOLDER_DETECTORS: Detector[] = [
+  {
+    detector_id: "det-001",
+    provider_guid: "22fb2cd6-0e7c-5a1e-b2c3-0e7c22fb2cd6",
+    provider_name: "Microsoft-Windows-Security-Auditing",
+    rule_id: "RULE-001",
+    deployment_status: "deployed",
+    environment: "production",
+    created_at: "2025-01-15T10:30:00Z",
+    last_updated: "2025-01-20T14:22:00Z",
+    repo_url: "https://dev.azure.com/org/project/_git/detectors",
+  },
+  {
+    detector_id: "det-002",
+    provider_guid: "3f471139-acb7-4a01-b7a3-6c78ca8b5c41",
+    provider_name: "Microsoft-Windows-Kernel-Process",
+    rule_id: "RULE-002",
+    deployment_status: "deployed",
+    environment: "production",
+    created_at: "2025-01-18T09:15:00Z",
+    last_updated: "2025-01-22T11:10:00Z",
+    repo_url: "https://dev.azure.com/org/project/_git/detectors",
+  },
+  {
+    detector_id: "det-003",
+    provider_guid: "54849625-5478-4994-a5ba-3e3b0328c30d",
+    provider_name: "Microsoft-Windows-PowerShell",
+    rule_id: "RULE-003",
+    deployment_status: "deployed",
+    environment: "production",
+    created_at: "2025-01-19T16:45:00Z",
+    last_updated: "2025-01-23T08:30:00Z",
+    repo_url: "https://dev.azure.com/org/project/_git/detectors",
+  },
+];
 
 export default function DashboardPage() {
-  const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
-  useEffect(() => {
-    async function fetchWorkflows() {
-      try {
-        const data = await apiClient.listWorkflows();
-        setWorkflows(data.workflows);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to fetch workflows");
-      } finally {
-        setLoading(false);
-      }
-    }
+  // Use placeholder data for now
+  const [detectors] = useState<Detector[]>(PLACEHOLDER_DETECTORS);
+  const [searchQuery, setSearchQuery] = useState("");
 
-    fetchWorkflows();
-  }, []);
+  // Filter detectors by search query
+  const filteredDetectors = detectors.filter((detector) => {
+    const query = searchQuery.toLowerCase();
+    return (
+      detector.provider_name.toLowerCase().includes(query) ||
+      detector.provider_guid.toLowerCase().includes(query) ||
+      detector.rule_id.toLowerCase().includes(query)
+    );
+  });
 
-  const stats = {
-    total: workflows.length,
-    running: workflows.filter(w => w.status === "running").length,
-    completed: workflows.filter(w => w.status === "completed").length,
-    failed: workflows.filter(w => w.status === "failed").length,
-  };
+  // Placeholder metrics
+  const totalDetectors = detectors.length;
+  const activeDetectors = detectors.filter((d) => d.deployment_status === "deployed").length;
+  const uniqueProviders = new Set(detectors.map((d) => d.provider_name)).size;
+  const deploymentSuccessRate = 98.5; // Placeholder percentage
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
-      <div className="container mx-auto py-8 space-y-8">
-        {/* Hero Section */}
-        <div className="text-center space-y-4 py-8">
-          <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            MAF Agents Dashboard
-          </h1>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            AI-powered ETW detector development with automated workflows
-          </p>
-          <div className="flex gap-4 justify-center pt-4">
-            <Link href="/workflow">
-              <Button size="lg" className="gap-2">
-                <Play className="h-5 w-5" />
-                Start New Workflow
-              </Button>
-            </Link>
-            <Button size="lg" variant="outline" asChild>
-              <a href="http://localhost:8000/docs" target="_blank" rel="noopener noreferrer">
-                API Documentation
-              </a>
-            </Button>
-          </div>
-        </div>
-
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <StatCard
-            title="Total Workflows"
-            value={stats.total}
-            icon={<Activity className="h-8 w-8 text-blue-600" />}
-            color="blue"
-          />
-          <StatCard
-            title="Running"
-            value={stats.running}
-            icon={<Zap className="h-8 w-8 text-yellow-600" />}
-            color="yellow"
-          />
-          <StatCard
-            title="Completed"
-            value={stats.completed}
-            icon={<CheckCircle2 className="h-8 w-8 text-green-600" />}
-            color="green"
-          />
-          <StatCard
-            title="Failed"
-            value={stats.failed}
-            icon={<AlertCircle className="h-8 w-8 text-red-600" />}
-            color="red"
-          />
-        </div>
-
-        {/* Features Section */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Platform Features</CardTitle>
-            <CardDescription>
-              Comprehensive detector development automation
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <FeatureCard
-                icon={<TrendingUp className="h-10 w-10 text-blue-600" />}
-                title="9-Step Workflow"
-                description="Automated pipeline from requirements to production"
-                items={[
-                  "Detector Triage",
-                  "Schema Discovery",
-                  "Code Generation",
-                  "PR Creation & Approval",
-                  "Deployment & Analysis"
-                ]}
-              />
-              <FeatureCard
-                icon={<Zap className="h-10 w-10 text-purple-600" />}
-                title="AI-Powered"
-                description="Azure OpenAI integration for intelligent automation"
-                items={[
-                  "Conversational agents",
-                  "Pattern analysis",
-                  "Code generation",
-                  "Requirements gathering"
-                ]}
-              />
-              <FeatureCard
-                icon={<Clock className="h-10 w-10 text-green-600" />}
-                title="Real-time Monitoring"
-                description="Live workflow progress and WebSocket updates"
-                items={[
-                  "Step-by-step tracking",
-                  "Checkpoint recovery",
-                  "Error handling",
-                  "Status notifications"
-                ]}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Recent Workflows */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Recent Workflows</CardTitle>
-                <CardDescription>
-                  Latest detector development workflows
-                </CardDescription>
-              </div>
-              <Link href="/workflow">
-                <Button variant="outline" size="sm" className="gap-2">
-                  View All
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </Link>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="text-center py-8 text-muted-foreground">
-                Loading workflows...
-              </div>
-            ) : error ? (
-              <div className="text-center py-8 text-red-600">
-                {error}
-              </div>
-            ) : workflows.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="text-muted-foreground mb-4">No workflows yet</p>
-                <Link href="/workflow">
-                  <Button>Create Your First Workflow</Button>
-                </Link>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {workflows.slice(0, 5).map((workflow) => (
-                  <WorkflowRow key={workflow.workflow_id} workflow={workflow} />
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Integration Status */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Azure Integrations</CardTitle>
-            <CardDescription>Connected services and endpoints</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <IntegrationStatus
-                name="Azure OpenAI"
-                status="connected"
-                description="LLM-powered agents and code generation"
-              />
-              <IntegrationStatus
-                name="Azure Kusto"
-                status="connected"
-                description="Schema discovery and results analysis"
-              />
-              <IntegrationStatus
-                name="Azure DevOps"
-                status="connected"
-                description="PR creation and repository management"
-              />
-              <IntegrationStatus
-                name="FastAPI Backend"
-                status="connected"
-                description="REST and WebSocket API server"
-              />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-function StatCard({ title, value, icon, color }: {
-  title: string;
-  value: number;
-  icon: React.ReactNode;
-  color: string;
-}) {
-  const colorClasses = {
-    blue: "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950",
-    yellow: "border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950",
-    green: "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950",
-    red: "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950",
-  };
-
-  return (
-    <Card className={colorClasses[color as keyof typeof colorClasses]}>
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-muted-foreground">{title}</p>
-            <p className="text-3xl font-bold mt-2">{value}</p>
-          </div>
-          {icon}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function FeatureCard({ icon, title, description, items }: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  items: string[];
-}) {
-  return (
-    <div className="space-y-3">
-      <div className="flex items-start gap-3">
-        {icon}
+    <div className="container mx-auto py-8 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-semibold text-lg">{title}</h3>
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </div>
-      </div>
-      <ul className="space-y-1 ml-12">
-        {items.map((item, i) => (
-          <li key={i} className="text-sm text-muted-foreground flex items-center gap-2">
-            <div className="h-1.5 w-1.5 rounded-full bg-primary" />
-            {item}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function WorkflowRow({ workflow }: { workflow: WorkflowSummary }) {
-  return (
-    <Link href={`/workflow?id=${workflow.workflow_id}`}>
-      <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent transition-colors cursor-pointer">
-        <div className="flex items-center gap-4">
-          <div>
-            <p className="font-mono text-sm font-medium">
-              {workflow.workflow_id.slice(0, 8)}...
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {workflow.current_step || "Initializing"}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <StatusBadge status={workflow.status} />
-          <p className="text-sm text-muted-foreground">
-            {new Date(workflow.created_at).toLocaleDateString()}
+          <h1 className="text-4xl font-bold">ETW Detector Platform</h1>
+          <p className="text-muted-foreground mt-2">
+            AI-powered detector development and monitoring
           </p>
         </div>
+        <Button
+          onClick={() => router.push("/workflow")}
+          size="lg"
+          className="gap-2"
+        >
+          <Plus className="h-5 w-5" />
+          Create New Detector
+        </Button>
       </div>
-    </Link>
-  );
-}
 
-function StatusBadge({ status }: { status: string }) {
-  const variants: Record<string, { className: string; label: string }> = {
-    starting: { className: "bg-blue-100 text-blue-700", label: "Starting" },
-    running: { className: "bg-blue-100 text-blue-700", label: "Running" },
-    completed: { className: "bg-green-100 text-green-700", label: "Completed" },
-    failed: { className: "bg-red-100 text-red-700", label: "Failed" },
-  };
+      {/* Metrics Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Total Detectors */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Detectors</CardTitle>
+            <Shield className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalDetectors}</div>
+            <p className="text-xs text-muted-foreground">
+              Across all environments
+            </p>
+          </CardContent>
+        </Card>
 
-  const variant = variants[status] || { className: "bg-gray-100 text-gray-700", label: status };
+        {/* Active Detectors */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active Detectors</CardTitle>
+            <Activity className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{activeDetectors}</div>
+            <p className="text-xs text-muted-foreground">
+              Currently deployed
+            </p>
+          </CardContent>
+        </Card>
 
-  return (
-    <Badge variant="outline" className={variant.className}>
-      {variant.label}
-    </Badge>
-  );
-}
+        {/* ETW Providers */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">ETW Providers</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{uniqueProviders}</div>
+            <p className="text-xs text-muted-foreground">
+              Unique providers monitored
+            </p>
+          </CardContent>
+        </Card>
 
-function IntegrationStatus({ name, status, description }: {
-  name: string;
-  status: string;
-  description: string;
-}) {
-  return (
-    <div className="flex items-start gap-3 p-4 border rounded-lg">
-      <div className={`h-3 w-3 rounded-full mt-1 ${
-        status === "connected" ? "bg-green-500 animate-pulse" : "bg-gray-400"
-      }`} />
-      <div>
-        <p className="font-medium">{name}</p>
-        <p className="text-sm text-muted-foreground">{description}</p>
+        {/* Success Rate */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{deploymentSuccessRate}%</div>
+            <p className="text-xs text-muted-foreground">
+              Deployment success
+            </p>
+          </CardContent>
+        </Card>
       </div>
+
+      {/* Active Detectors Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Active Detectors</CardTitle>
+              <CardDescription>
+                ETW detectors currently deployed and monitored
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Search Bar */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by provider name, GUID, or rule ID..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+
+          {/* Detectors Grid */}
+          {filteredDetectors.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16">
+              <Inbox className="h-16 w-16 text-muted-foreground mb-4" />
+              <h3 className="text-lg font-semibold mb-2">
+                {searchQuery ? "No detectors found" : "No active detectors"}
+              </h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                {searchQuery
+                  ? "Try adjusting your search query"
+                  : "Create your first detector to get started"}
+              </p>
+              {!searchQuery && (
+                <Button onClick={() => router.push("/workflow")} className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Create New Detector
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredDetectors.map((detector) => (
+                <DetectorCard
+                  key={detector.detector_id}
+                  detectorId={detector.detector_id}
+                  providerGuid={detector.provider_guid}
+                  providerName={detector.provider_name}
+                  ruleId={detector.rule_id}
+                  deploymentStatus={detector.deployment_status}
+                  environment={detector.environment}
+                  lastUpdated={detector.last_updated}
+                  repoUrl={detector.repo_url}
+                />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

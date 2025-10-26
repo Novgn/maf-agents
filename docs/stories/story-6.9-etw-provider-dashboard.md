@@ -102,3 +102,133 @@ Add to existing dashboard page (`/dashboard`):
 
 - PRD: docs/prd.md (Story 1.9)
 - Dashboard Components: client/src/components/dashboard/
+
+---
+
+## Tasks
+
+### Task 1: Add Detector Interfaces to types.ts
+- [x] Created DeploymentStatus type (deployed, pending, failed)
+- [x] Created Detector interface with all required fields
+- [x] Created DetectorListResponse interface
+- [x] Added comprehensive JSDoc documentation
+
+### Task 2: Add listDetectors Method to API Client
+- [x] Added listDetectors method to APIClient class
+- [x] Defined complete return type matching backend API spec
+- [x] Configured endpoint: `/api/detectors`
+- [x] Includes retry logic with exponential backoff
+- [x] Returns detector list with total count
+
+### Task 3: Create DetectorCard Component
+- [x] Created detector-card.tsx component in dashboard directory
+- [x] Implemented DetectorCardProps interface
+- [x] Added deployment status badge with icons (deployed, pending, failed)
+- [x] Displayed provider name as card title
+- [x] Showed provider GUID and rule ID
+- [x] Added environment and last updated timestamp with human-readable formatting
+- [x] Included external link button to Azure DevOps repo
+- [x] Added hover effects for interactive cards
+
+### Task 4: Add Active Detectors Section to Dashboard Page
+- [x] Imported Detector type and DetectorCard component
+- [x] Added detector state variables (detectors, isLoadingDetectors, searchQuery)
+- [x] Created fetchDetectors function
+- [x] Added Active Detectors card section to page
+- [x] Integrated search bar with Search icon
+- [x] Displayed detectors in responsive grid (1/2/3 columns)
+
+### Task 5: Implement Search/Filter Functionality for Detectors
+- [x] Added searchQuery state variable
+- [x] Created filteredDetectors computed value
+- [x] Filter by provider name (case-insensitive)
+- [x] Filter by provider GUID (case-insensitive)
+- [x] Filter by rule ID (case-insensitive)
+- [x] Real-time search updates as user types
+
+### Task 6: Add Auto-Refresh Every 30 Seconds for Detector Data
+- [x] Created useEffect hook for detector auto-refresh
+- [x] Set interval to 30 seconds (30000ms)
+- [x] Calls fetchDetectors on interval
+- [x] Clean up interval on component unmount
+- [x] Initial fetch happens on mount
+
+### Task 7: Add Loading Skeleton and Empty State
+- [x] Created loading state with Loader2 spinner
+- [x] Created empty state for no detectors with Inbox icon
+- [x] Created search empty state for no matching detectors
+- [x] Different messages for "No active detectors" vs "No detectors found"
+- [x] Helpful guidance messages for users
+
+### Task 8: Test and Validate Detector Dashboard Integration
+- [x] Run TypeScript type check (zero errors)
+- [x] Run ESLint (zero errors, fixed unused variable warning)
+- [x] Build production bundle successfully
+- [x] Update story documentation with tasks and completion notes
+
+---
+
+## Dev Agent Record
+
+### Status
+**Current Status**: Ready for Review
+
+### Agent/Model Used
+- Model: Claude Sonnet 4.5 (claude-sonnet-4-5-20250929)
+- Agent: James (Full Stack Developer)
+
+### Completion Notes
+- All 8 tasks completed successfully
+- Created Detector and DetectorListResponse interfaces
+- Added listDetectors API method for fetching active detectors
+- Built DetectorCard component with status badges and repo links
+- Added Active Detectors section to dashboard page
+- Search functionality filters by provider name, GUID, or rule ID
+- Auto-refresh every 30 seconds keeps detector data current
+- Loading and empty states provide good UX
+- Backend endpoint `/api/detectors` may not exist yet - frontend gracefully handles 404
+- Frontend is ready for backend integration when endpoint is implemented
+- TypeScript strict mode: Zero errors
+- ESLint: Zero errors (fixed unused variable warning)
+- Production build: Successful (1328ms compilation)
+- All acceptance criteria met (AC1-AC8)
+
+### Backend Integration Notes
+**Important**: This story requires the backend to implement the `/api/detectors` endpoint. The frontend will gracefully handle the case where the endpoint doesn't exist yet (silently fails in console). The expected backend response format:
+
+```json
+{
+  "detectors": [
+    {
+      "detector_id": "detector-123",
+      "provider_guid": "{00000000-0000-0000-0000-000000000001}",
+      "provider_name": "Microsoft-Windows-Security-Auditing",
+      "rule_id": "SuspiciousProcessCreation_v1",
+      "deployment_status": "deployed",
+      "environment": "production",
+      "created_at": "2025-10-20T10:30:00Z",
+      "last_updated": "2025-10-24T15:45:00Z",
+      "repo_url": "https://dev.azure.com/..."
+    }
+  ],
+  "total": 1
+}
+```
+
+### File List
+Files modified/created during this story:
+- client/src/lib/types.ts (modified - added Detector and DetectorListResponse interfaces)
+- client/src/lib/api-client.ts (modified - added listDetectors method)
+- client/src/components/dashboard/detector-card.tsx (created - detector card component)
+- client/src/app/dashboard/page.tsx (modified - added Active Detectors section)
+
+### Change Log
+| Date | Change | Files Affected |
+|------|--------|----------------|
+| 2025-10-25 | Story tasks defined | story-6.9-etw-provider-dashboard.md |
+| 2025-10-25 | Task 1: Detector interfaces added | types.ts |
+| 2025-10-25 | Task 2: listDetectors method added | api-client.ts |
+| 2025-10-25 | Task 3: DetectorCard component created | detector-card.tsx |
+| 2025-10-25 | Task 4-7: Active Detectors section added to dashboard | page.tsx (dashboard) |
+| 2025-10-25 | Task 8: Validation complete, build succeeds | All files |
+| 2025-10-25 | Story marked Ready for Review | story-6.9-etw-provider-dashboard.md |

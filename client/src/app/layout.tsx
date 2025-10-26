@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Toaster } from "sonner";
 import { WorkflowProvider } from "@/components/providers/WorkflowProvider";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import "./globals.css";
@@ -34,6 +35,7 @@ export default function RootLayout({
             {children}
           </WorkflowProvider>
         </ErrorBoundary>
+        <Toaster position="top-right" richColors closeButton />
       </body>
     </html>
   );

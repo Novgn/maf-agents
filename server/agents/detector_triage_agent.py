@@ -6,6 +6,8 @@ and articulate what type of detector they want to create through guided
 conversation and requirement gathering.
 """
 
+import asyncio
+from typing import Callable, Any
 from agent_framework import ChatAgent, ChatMessage
 from agent_framework.azure import AzureOpenAIChatClient
 
@@ -21,9 +23,20 @@ class DetectorTriageAgent:
     implementation details.
     """
 
-    def __init__(self):
-        """Initialize the Detector Triage Agent using Azure OpenAI."""
+    def __init__(self, input_queue: asyncio.Queue = None, broadcast_func: Callable = None, workflow_id: str = None):
+        """
+        Initialize the Detector Triage Agent using Azure OpenAI.
+
+        Args:
+            input_queue: Asyncio queue for receiving user input from WebSocket
+            broadcast_func: Function to broadcast agent messages via WebSocket
+            workflow_id: Workflow ID for message context
+        """
         chat_client = AzureOpenAIChatClient()
+
+        self.input_queue = input_queue
+        self.broadcast_func = broadcast_func
+        self.workflow_id = workflow_id
 
         self.agent = ChatAgent(
             chat_client=chat_client,
@@ -68,7 +81,8 @@ Examples of good detector ideas:
         Raises:
             ValueError: If requirements gathering fails or is incomplete
         """
-        print("\n")
+        print("\n✓ Starting conversational triage with WebSocket support")
+
         triage_prompt = "Hello! I'm here to help you create a new ETW detector. Tell me - what security concern or system behavior would you like to detect?"
 
         conversation_history = []
@@ -77,18 +91,33 @@ Examples of good detector ideas:
 
         # Initial agent response
         response = await self.agent.run(triage_prompt)
-        print(f"🤖 Agent: {response.text}\n")
-        conversation_history.append({"role": "assistant", "content": response.text})
+        agent_message = response.text
+        print(f"🤖 Agent: {agent_message}\n")
+        conversation_history.append({"role": "assistant", "content": agent_message})
+
+        # Broadcast agent message via WebSocket
+        if self.broadcast_func and self.workflow_id:
+            await self.broadcast_func(self.workflow_id, {
+                "type": "agent_message",
+                "message": agent_message,
+                "step_number": 1,
+            })
 
         # Conversation loop
         detector_summary = ""
         while not requirements_complete and turn_count < max_turns:
-            # Get user input
-            user_input = input("You: ").strip()
+            # Get user input from queue (WebSocket)
+            try:
+                user_input = await asyncio.wait_for(self.input_queue.get(), timeout=300.0)  # 5 minute timeout
+                print(f"You: {user_input}")
+            except asyncio.TimeoutError:
+                print("⚠️  Timeout waiting for user input")
+                break
 
-            if not user_input:
+            if not user_input or not user_input.strip():
                 continue
 
+            user_input = user_input.strip()
             conversation_history.append({"role": "user", "content": user_input})
 
             # Check if user wants to proceed or is done
@@ -107,20 +136,30 @@ Examples of good detector ideas:
                 print(f"{detector_summary}")
                 print("="*70)
 
-                # Confirm
-                confirm = input("\nIs this correct? (yes/no): ").strip().lower()
-                if confirm in ['y', 'yes']:
-                    requirements_complete = True
-                else:
-                    refine_msg = "Let's refine the requirements. What would you like to adjust?"
-                    print(f"\n🤖 Agent: {refine_msg}\n")
-                    conversation_history.append({"role": "assistant", "content": refine_msg})
-                    # Continue the loop to get user refinements
+                # Broadcast summary
+                if self.broadcast_func and self.workflow_id:
+                    await self.broadcast_func(self.workflow_id, {
+                        "type": "agent_message",
+                        "message": detector_summary,
+                        "step_number": 1,
+                    })
+
+                # Mark as complete (no terminal confirmation needed for WebSocket mode)
+                requirements_complete = True
             else:
                 # Continue conversation - agent maintains context, just pass new user input
                 response = await self.agent.run(user_input)
-                print(f"\n🤖 Agent: {response.text}\n")
-                conversation_history.append({"role": "assistant", "content": response.text})
+                agent_message = response.text
+                print(f"\n🤖 Agent: {agent_message}\n")
+                conversation_history.append({"role": "assistant", "content": agent_message})
+
+                # Broadcast agent response
+                if self.broadcast_func and self.workflow_id:
+                    await self.broadcast_func(self.workflow_id, {
+                        "type": "agent_message",
+                        "message": agent_message,
+                        "step_number": 1,
+                    })
 
             turn_count += 1
 
@@ -141,11 +180,20 @@ Examples of good detector ideas:
         )
 
 
-async def create_detector_triage_agent() -> DetectorTriageAgent:
+async def create_detector_triage_agent(
+    input_queue: asyncio.Queue = None,
+    broadcast_func: Callable = None,
+    workflow_id: str = None
+) -> DetectorTriageAgent:
     """
     Factory function to create a Detector Triage Agent.
 
+    Args:
+        input_queue: Asyncio queue for receiving user input from WebSocket
+        broadcast_func: Function to broadcast agent messages via WebSocket
+        workflow_id: Workflow ID for message context
+
     Returns:
-        DetectorTriageAgent instance configured with Azure OpenAI
+        DetectorTriageAgent instance configured with Azure OpenAI and WebSocket support
     """
-    return DetectorTriageAgent()
+    return DetectorTriageAgent(input_queue=input_queue, broadcast_func=broadcast_func, workflow_id=workflow_id)

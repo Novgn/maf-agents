@@ -8,7 +8,7 @@ from a Next.js frontend.
 import asyncio
 import json
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 from uuid import uuid4
 
@@ -24,18 +24,38 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from workflows.detector_workflow import build_detector_workflow
 from agent_framework import WorkflowOutputEvent, WorkflowFailedEvent
 
+# Import session storage
+from storage import create_session_store_from_env, WorkflowSession, AzureTableSessionStore
+
 
 # Global state management
 workflows: Dict[str, Any] = {}
 websocket_connections: Dict[str, WebSocket] = {}
+# Conversation queues for agent interaction (workflow_id -> asyncio.Queue)
+conversation_queues: Dict[str, asyncio.Queue] = {}
+# Session store (will be initialized in lifespan)
+session_store: AzureTableSessionStore | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle manager for FastAPI application."""
+    global session_store
+
     # Startup
     print("🚀 maf-agents API Server starting...")
+
+    # Initialize session store from environment
+    try:
+        session_store = create_session_store_from_env()
+        print("✓ Session store initialized from environment")
+    except Exception as e:
+        print(f"⚠️  Session store initialization failed: {e}")
+        print("ℹ️  Server will run without persistent session storage")
+        session_store = None
+
     yield
+
     # Shutdown
     print("👋 maf-agents API Server shutting down...")
 
@@ -107,18 +127,33 @@ async def run_workflow_async(workflow_id: str, input_data: Dict[str, Any]):
         input_data: Initial workflow data
     """
     try:
-        # Build workflow
-        workflow = await build_detector_workflow()
+        # Create conversation queue for this workflow
+        conversation_queues[workflow_id] = asyncio.Queue()
+        print(f"✓ Created conversation queue for workflow {workflow_id[:8]}")
+
+        # Build workflow with conversation support
+        workflow = await build_detector_workflow(workflow_id, conversation_queues[workflow_id], broadcast_workflow_update)
 
         # Initialize workflow state
         workflows[workflow_id] = {
             "status": "running",
-            "current_step": "initializing",
-            "step_number": 0,
+            "current_step": "detector_triage",
+            "step_number": 1,
             "data": input_data,
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
         }
+
+        # Update session in Azure Table Storage
+        if session_store:
+            try:
+                session = await session_store.get_session(workflow_id, "anonymous")
+                if session:
+                    session.status = "running"
+                    session.current_step = 1
+                    await session_store.save_session(session)
+            except Exception as e:
+                print(f"⚠️  Failed to update session status: {e}")
 
         # Send initial status update
         await broadcast_workflow_update(workflow_id)
@@ -131,6 +166,17 @@ async def run_workflow_async(workflow_id: str, input_data: Dict[str, Any]):
                 workflows[workflow_id]["data"] = event.data
                 workflows[workflow_id]["updated_at"] = datetime.now().isoformat()
 
+                # Update session in Azure Table Storage
+                if session_store:
+                    try:
+                        session = await session_store.get_session(workflow_id, "anonymous")
+                        if session:
+                            session.status = "completed"
+                            session.workflow_data = event.data if isinstance(event.data, dict) else {}
+                            await session_store.save_session(session)
+                    except Exception as e:
+                        print(f"⚠️  Failed to update session on completion: {e}")
+
                 await broadcast_workflow_update(workflow_id, {
                     "type": "workflow_complete",
                     "data": event.data
@@ -141,6 +187,17 @@ async def run_workflow_async(workflow_id: str, input_data: Dict[str, Any]):
                 workflows[workflow_id]["status"] = "failed"
                 workflows[workflow_id]["error"] = event.details.message
                 workflows[workflow_id]["updated_at"] = datetime.now().isoformat()
+
+                # Update session in Azure Table Storage
+                if session_store:
+                    try:
+                        session = await session_store.get_session(workflow_id, "anonymous")
+                        if session:
+                            session.status = "failed"
+                            session.metadata["error"] = event.details.message
+                            await session_store.save_session(session)
+                    except Exception as e:
+                        print(f"⚠️  Failed to update session on failure: {e}")
 
                 await broadcast_workflow_update(workflow_id, {
                     "type": "workflow_failed",
@@ -153,10 +210,26 @@ async def run_workflow_async(workflow_id: str, input_data: Dict[str, Any]):
         workflows[workflow_id]["error"] = str(e)
         workflows[workflow_id]["updated_at"] = datetime.now().isoformat()
 
+        # Update session in Azure Table Storage
+        if session_store:
+            try:
+                session = await session_store.get_session(workflow_id, "anonymous")
+                if session:
+                    session.status = "failed"
+                    session.metadata["error"] = str(e)
+                    await session_store.save_session(session)
+            except Exception as ex:
+                print(f"⚠️  Failed to update session on exception: {ex}")
+
         await broadcast_workflow_update(workflow_id, {
             "type": "workflow_error",
             "error": str(e)
         })
+    finally:
+        # Cleanup conversation queue
+        if workflow_id in conversation_queues:
+            del conversation_queues[workflow_id]
+            print(f"✓ Cleaned up conversation queue for workflow {workflow_id[:8]}")
 
 
 async def broadcast_workflow_update(workflow_id: str, extra_data: Dict[str, Any] | None = None):
@@ -174,6 +247,24 @@ async def broadcast_workflow_update(workflow_id: str, extra_data: Dict[str, Any]
             **workflows[workflow_id],
             **(extra_data or {})
         }
+
+        # Save agent messages to conversation history in Azure Table Storage
+        if extra_data and extra_data.get("type") == "agent_message" and session_store:
+            try:
+                session = await session_store.get_session(workflow_id, "anonymous")
+                if session:
+                    session.conversation_history.append({
+                        "role": "assistant",
+                        "content": extra_data.get("message", ""),
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    })
+                    # Update current step if provided
+                    if "step_number" in extra_data:
+                        session.current_step = extra_data["step_number"]
+                    await session_store.save_session(session)
+                    print(f"✓ Saved agent message to session history")
+            except Exception as e:
+                print(f"⚠️  Failed to save agent message to session: {e}")
 
         try:
             await ws.send_json(message)
@@ -227,6 +318,29 @@ async def create_workflow(
         "workflow_id": workflow_id,
     }
 
+    # Create initial session in Azure Table Storage
+    # TODO: Replace "anonymous" with actual user_id from JWT token after Azure AD auth
+    if session_store:
+        session = WorkflowSession(
+            workflow_id=workflow_id,
+            user_id="anonymous",  # TODO: Extract from JWT after Azure AD auth
+            status="starting",
+            current_step=0,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            updated_at=datetime.now(timezone.utc).isoformat(),
+            conversation_history=[],
+            workflow_data={},
+            metadata={
+                "created_from": "api",
+                "client_ip": "unknown",  # TODO: Extract from request
+            }
+        )
+        try:
+            await session_store.save_session(session)
+            print(f"✓ Created session in Azure Table Storage for workflow {workflow_id[:8]}")
+        except Exception as e:
+            print(f"⚠️  Failed to save initial session: {e}")
+
     # Start workflow in background
     background_tasks.add_task(run_workflow_async, workflow_id, input_data)
 
@@ -240,19 +354,46 @@ async def create_workflow(
 @app.get("/api/workflows/{workflow_id}", response_model=WorkflowStatusResponse)
 async def get_workflow_status(workflow_id: str):
     """Get current status of a workflow."""
-    if workflow_id not in workflows:
-        raise HTTPException(status_code=404, detail="Workflow not found")
+    # Check in-memory workflows first
+    if workflow_id in workflows:
+        workflow = workflows[workflow_id]
+        return WorkflowStatusResponse(
+            workflow_id=workflow_id,
+            status=workflow["status"],
+            current_step=workflow.get("current_step"),
+            step_number=workflow.get("step_number"),
+            data=workflow.get("data", {}),
+            error=workflow.get("error")
+        )
 
-    workflow = workflows[workflow_id]
+    # If not in memory, try to restore from Azure Table Storage
+    if session_store:
+        try:
+            session = await session_store.get_session(workflow_id, "anonymous")
+            if session:
+                print(f"✓ Restored session from Azure Table Storage for workflow {workflow_id[:8]}")
+                # Restore to in-memory workflows (but don't restart the workflow)
+                workflows[workflow_id] = {
+                    "status": session.status,
+                    "current_step": session.current_step,
+                    "step_number": session.current_step,
+                    "data": session.workflow_data,
+                    "created_at": session.created_at,
+                    "updated_at": session.updated_at,
+                }
+                return WorkflowStatusResponse(
+                    workflow_id=workflow_id,
+                    status=session.status,
+                    current_step=str(session.current_step) if session.current_step else None,
+                    step_number=session.current_step,
+                    data=session.workflow_data,
+                    error=session.metadata.get("error")
+                )
+        except Exception as e:
+            print(f"⚠️  Failed to restore session from storage: {e}")
 
-    return WorkflowStatusResponse(
-        workflow_id=workflow_id,
-        status=workflow["status"],
-        current_step=workflow.get("current_step"),
-        step_number=workflow.get("step_number"),
-        data=workflow.get("data", {}),
-        error=workflow.get("error")
-    )
+    # Workflow not found in memory or storage
+    raise HTTPException(status_code=404, detail="Workflow not found")
 
 
 @app.post("/api/workflows/{workflow_id}/input")
@@ -282,6 +423,30 @@ async def submit_workflow_input(workflow_id: str, request: UserInputRequest):
     })
 
     workflow["updated_at"] = datetime.now().isoformat()
+
+    # Handle triage message - put in conversation queue for agent
+    if request.input_type == "triage_message":
+        if workflow_id in conversation_queues:
+            message = request.data.get("message", "")
+            await conversation_queues[workflow_id].put(message)
+            print(f"📨 Queued user message for workflow {workflow_id[:8]}: {message}")
+
+            # Save user message to conversation history in Azure Table Storage
+            if session_store:
+                try:
+                    session = await session_store.get_session(workflow_id, "anonymous")
+                    if session:
+                        session.conversation_history.append({
+                            "role": "user",
+                            "content": message,
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        })
+                        await session_store.save_session(session)
+                        print(f"✓ Saved user message to session history")
+                except Exception as e:
+                    print(f"⚠️  Failed to save conversation history: {e}")
+        else:
+            print(f"⚠️  No conversation queue for workflow {workflow_id[:8]}")
 
     # Broadcast update
     await broadcast_workflow_update(workflow_id, {
@@ -314,7 +479,7 @@ async def delete_workflow(workflow_id: str):
 
 @app.get("/api/workflows")
 async def list_workflows():
-    """List all workflows."""
+    """List all workflows (in-memory only)."""
     return {
         "workflows": [
             {
@@ -328,6 +493,76 @@ async def list_workflows():
         ],
         "total": len(workflows)
     }
+
+
+@app.get("/api/sessions")
+async def list_user_sessions(user_id: str = "anonymous", limit: int = 100):
+    """
+    List all workflow sessions for a user from Azure Table Storage.
+
+    Args:
+        user_id: User identifier (default: "anonymous")
+        limit: Maximum number of sessions to return (default: 100)
+
+    Returns:
+        List of workflow sessions with conversation history
+    """
+    if not session_store:
+        raise HTTPException(
+            status_code=503,
+            detail="Session storage not configured. Set AZURE_STORAGE_ENDPOINT environment variable."
+        )
+
+    try:
+        sessions = await session_store.list_user_sessions(user_id, limit)
+        return {
+            "sessions": [
+                {
+                    "workflow_id": s.workflow_id,
+                    "status": s.status,
+                    "current_step": s.current_step,
+                    "created_at": s.created_at,
+                    "updated_at": s.updated_at,
+                    "conversation_length": len(s.conversation_history),
+                    # Optionally include full conversation history
+                    "conversation_history": s.conversation_history,
+                    "workflow_data": s.workflow_data,
+                }
+                for s in sessions
+            ],
+            "total": len(sessions),
+            "user_id": user_id
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list sessions: {str(e)}")
+
+
+@app.post("/api/sessions/cleanup")
+async def cleanup_old_sessions(days: int = 30):
+    """
+    Delete workflow sessions older than specified days.
+
+    Args:
+        days: Number of days to keep sessions (default: 30)
+
+    Returns:
+        Number of sessions deleted
+    """
+    if not session_store:
+        raise HTTPException(
+            status_code=503,
+            detail="Session storage not configured. Set AZURE_STORAGE_ENDPOINT environment variable."
+        )
+
+    try:
+        deleted_count = await session_store.cleanup_old_sessions(days)
+        return {
+            "status": "success",
+            "deleted_count": deleted_count,
+            "days": days
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to cleanup sessions: {str(e)}")
 
 
 # ============================================================================
