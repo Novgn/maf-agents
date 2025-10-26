@@ -138,6 +138,16 @@ async def detector_triage_executor(
     print(f"\n    ✓ Triage complete - detector requirements gathered")
     print(f"    ✓ Status: Success")
 
+    # Send step completion as chat message
+    broadcast_chat = _workflow_context.get("broadcast_chat_func")
+    workflow_id = _workflow_context.get("workflow_id")
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "system",
+            "✓ Triage complete - requirements gathered"
+        )
+
     await ctx.send_message(workflow_data)
 
 
@@ -148,14 +158,23 @@ async def etw_input_collection_executor(
 ) -> None:
     """
     Step 2: ETW Input Collection
-    Uses the ETW Input Agent to collect and validate providerGuid and ruleId
-    through a conversational interface, informed by the triage context.
+    Collects providerGuid and ruleId through inline chat form.
     """
-    print("\n✓ [2/9] ETW Input Collection (Conversational Agent)")
-    print("    Initializing ETW Input Collection Agent...")
+    print("\n✓ [2/9] ETW Input Collection")
 
-    # Create the ETW Input Agent
-    agent = await create_etw_input_agent()
+    # Get context
+    broadcast_chat = _workflow_context.get("broadcast_chat_func")
+    workflow_id = _workflow_context.get("workflow_id")
+    input_queue = _workflow_context.get("input_queue")
+
+    # Send step transition message
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "step_transition",
+            "ETW Input Collection",
+            {"step": 2}
+        )
 
     # Check for automation flag - only skip conversation if explicitly requested
     use_automation = workflow_data.get("_use_automation", False)
@@ -165,36 +184,83 @@ async def etw_input_collection_executor(
         provider_guid = workflow_data["provider_guid"]
         rule_id = workflow_data["rule_id"]
         print(f"    Using pre-populated input data (automation mode)")
-
-        # Validate pre-populated data using the agent
-        etw_input = await agent.collect_inputs(
-            provider_guid=provider_guid,
-            rule_id=rule_id
-        )
     else:
-        # Default: Interactive conversational collection
-        # Show triage context if available
-        if "triage_summary" in workflow_data:
-            print("\n" + "="*70)
-            print("📋 Detector Requirements Summary:")
-            print("="*70)
-            print(f"{workflow_data['triage_summary']}\n")
-            print("="*70)
+        # Send form request as chat message
+        if broadcast_chat and workflow_id:
+            # Show triage summary first
+            if "triage_summary" in workflow_data:
+                await broadcast_chat(
+                    workflow_id,
+                    "agent",
+                    f"**Detector Requirements Summary:**\n\n{workflow_data['triage_summary']}\n\nNow I need some technical details about the ETW provider."
+                )
 
-        print("\n" + "="*70)
-        print("📝 Please provide ETW detector technical details")
-        print("="*70)
-        etw_input = await agent.collect_inputs()
+            # Send form request
+            await broadcast_chat(
+                workflow_id,
+                "form_request",
+                "Please provide the ETW provider details:",
+                {
+                    "formFields": [
+                        {
+                            "name": "providerGuid",
+                            "label": "ETW Provider GUID",
+                            "type": "text",
+                            "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                            "required": True,
+                            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                            "helpText": "UUID format ETW provider identifier"
+                        },
+                        {
+                            "name": "ruleId",
+                            "label": "Detector Rule ID (GUID)",
+                            "type": "text",
+                            "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                            "required": True,
+                            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                            "helpText": "UUID format unique identifier for this detection rule"
+                        }
+                    ]
+                }
+            )
+
+        # Wait for user input from queue
+        if input_queue:
+            print("    Waiting for ETW input from user...")
+            try:
+                user_input = await asyncio.wait_for(input_queue.get(), timeout=300.0)
+                provider_guid = user_input.get("providerGuid", "")
+                rule_id = user_input.get("ruleId", "")
+            except asyncio.TimeoutError:
+                print("    ❌ Timeout waiting for ETW input")
+                workflow_data["status"] = "failed"
+                workflow_data["error_message"] = "Timeout waiting for ETW provider input"
+                await ctx.send_message(workflow_data)
+                return
+        else:
+            print("    ❌ No input queue available")
+            workflow_data["status"] = "failed"
+            workflow_data["error_message"] = "No input mechanism available"
+            await ctx.send_message(workflow_data)
+            return
 
     # Merge workflow data from triage with ETW data
-    workflow_data["provider_guid"] = etw_input.provider_guid
-    workflow_data["rule_id"] = etw_input.rule_id
+    workflow_data["provider_guid"] = provider_guid
+    workflow_data["rule_id"] = rule_id
     workflow_data["current_step"] = "etw_input_collection"
     workflow_data["status"] = "success"
 
-    print(f"\n    ✓ Provider GUID: {etw_input.provider_guid}")
-    print(f"    ✓ Rule ID: {etw_input.rule_id}")
+    print(f"\n    ✓ Provider GUID: {provider_guid}")
+    print(f"    ✓ Rule ID: {rule_id}")
     print(f"    ✓ Status: Success")
+
+    # Send confirmation message
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "system",
+            f"✓ ETW provider configured: {provider_guid}"
+        )
 
     await ctx.send_message(workflow_data)
 
@@ -212,12 +278,33 @@ async def schema_discovery_executor(
     print("\n✓ [3/9] Schema Discovery (Conversational Agent)")
     print("    Initializing Schema Discovery Agent...")
 
+    # Get context
+    broadcast_chat = _workflow_context.get("broadcast_chat_func")
+    workflow_id = _workflow_context.get("workflow_id")
+
+    # Send step transition message
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "step_transition",
+            "Schema Discovery",
+            {"step": 3}
+        )
+
     config = get_config()
 
     # Initialize Kusto client if configured
     if not config.azure.kusto_cluster_url or not config.azure.kusto_database_name:
         print("    ❌ Kusto not configured - cannot discover schema")
         print("    Please configure KUSTO_CLUSTER_URL and KUSTO_DATABASE_NAME")
+
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "error",
+                "❌ Kusto not configured - cannot discover schema. Please configure KUSTO_CLUSTER_URL and KUSTO_DATABASE_NAME"
+            )
+
         etw_data["current_step"] = "schema_discovery_failed"
         etw_data["status"] = "failed"
         etw_data["error_message"] = "Kusto cluster not configured"
@@ -225,6 +312,15 @@ async def schema_discovery_executor(
         return
 
     try:
+        # Send progress message
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "progress",
+                "🔍 Querying Kusto for ETW event schema...",
+                {"progress": 25}
+            )
+
         auth_mgr = get_auth_manager(use_default_credential=True)
         kusto_client = create_kusto_client(
             cluster_url=config.azure.kusto_cluster_url,
@@ -237,6 +333,15 @@ async def schema_discovery_executor(
             kusto_client=kusto_client
         )
 
+        # Send progress message
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "progress",
+                "📊 Analyzing event structure and existing detectors...",
+                {"progress": 50}
+            )
+
         # Run schema discovery
         schema_data = await agent.discover_schema(
             provider_guid=etw_data["provider_guid"],
@@ -247,6 +352,14 @@ async def schema_discovery_executor(
         if len(schema_data.schema_fields) == 0:
             print(f"    ❌ No schema fields found for provider GUID")
             print(f"    Please verify the provider GUID and Kusto tables exist")
+
+            if broadcast_chat and workflow_id:
+                await broadcast_chat(
+                    workflow_id,
+                    "error",
+                    "❌ No schema fields found for provider GUID. Please verify the provider GUID and Kusto tables exist."
+                )
+
             etw_data["current_step"] = "schema_discovery_failed"
             etw_data["status"] = "failed"
             etw_data["error_message"] = "No schema fields found in Kusto"
@@ -270,11 +383,27 @@ async def schema_discovery_executor(
         etw_data["status"] = "success"
         print(f"    ✓ Status: Success")
 
+        # Send completion message
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "system",
+                f"✓ Schema discovered: {len(schema_data.schema_fields)} fields, {len(schema_data.existing_detectors)} existing detectors"
+            )
+
         await ctx.send_message(etw_data)
 
     except Exception as e:
         print(f"    ❌ Schema discovery failed: {str(e)}")
         print(f"    Please check Kusto configuration and table names")
+
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "error",
+                f"❌ Schema discovery failed: {str(e)}"
+            )
+
         etw_data["current_step"] = "schema_discovery_failed"
         etw_data["status"] = "failed"
         etw_data["error_message"] = str(e)
@@ -291,16 +420,81 @@ async def code_generator_executor(
     Analyzes historical PRs and generates detector code.
     """
     print("\n✓ [4/9] Code Generator")
+
+    # Get context
+    broadcast_chat = _workflow_context.get("broadcast_chat_func")
+    workflow_id = _workflow_context.get("workflow_id")
+
+    # Send step transition message
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "step_transition",
+            "Code Generation",
+            {"step": 4}
+        )
+
+    # Send progress messages
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "progress",
+            "📚 Analyzing historical PR patterns...",
+            {"progress": 20}
+        )
+
     print("    Analyzing historical PR patterns...")
+
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "progress",
+            "🤖 Generating detector code...",
+            {"progress": 60}
+        )
+
     print("    Generating detector code...")
 
+    # Generate placeholder code
+    rule_id = workflow_data['rule_id']
+    detector_code = f"""# Generated detector for {rule_id}
+# Provider GUID: {workflow_data.get('provider_guid', 'N/A')}
+
+class {rule_id.replace('_', ' ').title().replace(' ', '')}Detector:
+    def __init__(self):
+        self.rule_id = "{rule_id}"
+        self.provider_guid = "{workflow_data.get('provider_guid', 'N/A')}"
+
+    def analyze(self, event):
+        # TODO: Implement detection logic
+        pass
+"""
+
     workflow_data["generated_files"] = {
-        "detector_file": f"detector_{workflow_data['rule_id']}.py",
-        "test_file": f"test_detector_{workflow_data['rule_id']}.py",
+        "detector_file": f"detector_{rule_id}.py",
+        "test_file": f"test_detector_{rule_id}.py",
     }
+    workflow_data["generated_code"] = detector_code
     workflow_data["current_step"] = "code_generator"
     workflow_data["status"] = "success"
     print(f"    ✓ Status: Success")
+
+    # Send artifact message with generated code
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "artifact",
+            detector_code,
+            {"language": "python"}
+        )
+
+    # Send completion message
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "system",
+            f"✓ Detector code generated: {workflow_data['generated_files']['detector_file']}"
+        )
 
     await ctx.send_message(workflow_data)
 
@@ -316,12 +510,33 @@ async def pr_creation_executor(
     """
     print("\n✓ [5/9] PR Creation")
 
+    # Get context
+    broadcast_chat = _workflow_context.get("broadcast_chat_func")
+    workflow_id = _workflow_context.get("workflow_id")
+
+    # Send step transition message
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "step_transition",
+            "PR Creation & Review",
+            {"step": 5}
+        )
+
     config = get_config()
 
     # Check if Azure DevOps is configured
     if not config.azure.azure_devops_org or not config.azure.azure_devops_project or not config.azure.azure_devops_repo:
         print("    ❌ Azure DevOps not configured - cannot create PR")
         print("    Please configure AZURE_DEVOPS_ORG, AZURE_DEVOPS_PROJECT, and AZURE_DEVOPS_REPO")
+
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "error",
+                "❌ Azure DevOps not configured - cannot create PR. Please configure AZURE_DEVOPS_ORG, AZURE_DEVOPS_PROJECT, and AZURE_DEVOPS_REPO"
+            )
+
         workflow_data["current_step"] = "pr_creation_failed"
         workflow_data["status"] = "failed"
         workflow_data["error_message"] = "Azure DevOps not configured"
@@ -341,8 +556,16 @@ async def pr_creation_executor(
         target_branch = "main"
 
         # Step 1: Create branch
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "progress",
+                f"🌿 Creating branch '{branch_name}'...",
+                {"progress": 25}
+            )
+
         print(f"    Creating branch '{branch_name}'...")
-        branch_result = create_branch(
+        create_branch(
             connection=connection,
             project=config.azure.azure_devops_project,
             repository_id=config.azure.azure_devops_repo,
@@ -352,13 +575,22 @@ async def pr_creation_executor(
         print(f"    ✓ Branch created: {branch_name}")
 
         # Step 2: Prepare file changes
-        # Use placeholder generated files from code generator step
+        # Use generated code from code generator step
+        detector_code = workflow_data.get('generated_code', f"# Generated detector code for {workflow_data['rule_id']}\npass")
         file_changes = {
-            f"detectors/{workflow_data['generated_files']['detector_file']}": f"# Generated detector code for {workflow_data['rule_id']}\npass",
+            f"detectors/{workflow_data['generated_files']['detector_file']}": detector_code,
             f"tests/{workflow_data['generated_files']['test_file']}": f"# Generated test code for {workflow_data['rule_id']}\npass",
         }
 
         # Step 3: Commit and push files
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "progress",
+                f"💾 Committing {len(file_changes)} file(s)...",
+                {"progress": 50}
+            )
+
         print(f"    Committing {len(file_changes)} file(s)...")
         commit_result = commit_and_push_files(
             connection=connection,
@@ -371,6 +603,14 @@ async def pr_creation_executor(
         print(f"    ✓ Committed files (commit: {commit_result['commit_id'][:8] if commit_result['commit_id'] else 'N/A'})")
 
         # Step 4: Create pull request
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "progress",
+                "📝 Creating pull request...",
+                {"progress": 75}
+            )
+
         print("    Creating pull request...")
         pr_result = create_pull_request(
             connection=connection,
@@ -401,11 +641,42 @@ Generated by maf-agents automated workflow.
         workflow_data["status"] = "success"
         print(f"    ✓ Status: Success")
 
+        # Send PR details for review
+        if broadcast_chat and workflow_id:
+            # Format PR summary for display
+            pr_summary = f"""**Pull Request Created**
+
+**PR Details:**
+- PR #{pr_result['pr_id']}: {workflow_data['rule_id']}
+- Branch: `{branch_name}`
+- Files: {len(file_changes)} files changed
+
+**Detector Information:**
+- Rule ID: `{workflow_data['rule_id']}`
+- Provider GUID: `{workflow_data['provider_guid']}`
+- Schema Fields: {len(workflow_data.get('schema_fields', []))}
+
+**URL:** {pr_result['pr_url']}"""
+
+            await broadcast_chat(
+                workflow_id,
+                "system",
+                f"✓ Pull request created: #{pr_result['pr_id']}"
+            )
+
         await ctx.send_message(workflow_data)
 
     except Exception as e:
         print(f"    ❌ PR creation failed: {str(e)}")
         print(f"    Please check Azure DevOps configuration and permissions")
+
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "error",
+                f"❌ PR creation failed: {str(e)}"
+            )
+
         workflow_data["current_step"] = "pr_creation_failed"
         workflow_data["status"] = "failed"
         workflow_data["error_message"] = str(e)
@@ -542,22 +813,82 @@ async def approval_gate_executor(
     ctx: WorkflowContext[dict[str, Any]]
 ) -> None:
     """
-    Step 6: User Approval Gate using MAF's ChatAgent approval pattern.
+    Step 6: User Approval Gate via WebSocket approval request.
 
-    Pauses workflow for human review and approval of PR using MAF's
-    built-in user input request system with @ai_function approval_mode.
-
+    Sends approval_request message to frontend and waits for user response.
     This is a critical human-in-the-loop control point where users
     review the generated PR before allowing the workflow to continue.
     """
     print("\n✓ [6/9] User Approval Gate")
     print("=" * 70)
 
-    # Create chat client for approval agent
-    chat_client = AzureOpenAIChatClient()
+    # Get context
+    broadcast_chat = _workflow_context.get("broadcast_chat_func")
+    workflow_id = _workflow_context.get("workflow_id")
+    input_queue = _workflow_context.get("input_queue")
 
-    # Handle PR approval using MAF pattern
-    approved = await _handle_pr_approval(workflow_data, chat_client)
+    # Send step transition message
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "step_transition",
+            "PR Review & Approval",
+            {"step": 6}
+        )
+
+    # Format PR details for approval
+    pr_url = workflow_data.get("pr_url", "N/A")
+    pr_id = workflow_data.get("pr_id", "N/A")
+    branch_name = workflow_data.get("branch_name", "N/A")
+
+    pr_details = f"""**PR #{pr_id}: {workflow_data.get('rule_id')}**
+
+**Branch:** {branch_name}
+**URL:** {pr_url}
+
+**Detector Details:**
+- Rule ID: {workflow_data.get('rule_id')}
+- Provider GUID: {workflow_data.get('provider_guid')}
+- Schema Fields: {len(workflow_data.get('schema_fields', []))}
+- Files Changed: 2 (detector + test)
+
+Please review the pull request before proceeding."""
+
+    # Send approval request message
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "approval_request",
+            "Please review the generated pull request and approve to proceed with deployment.",
+            {
+                "approvalData": {
+                    "content": pr_details,
+                    "contentLabel": "Pull Request Details",
+                    "approvalType": "pr_review",
+                    "allowFeedback": True
+                }
+            }
+        )
+
+    # Wait for approval from user via input queue
+    approved = False
+    if input_queue:
+        print("    Waiting for user approval...")
+        try:
+            approval_response = await asyncio.wait_for(input_queue.get(), timeout=600.0)  # 10 minute timeout
+            approved = approval_response.get("approved", False)
+            feedback = approval_response.get("feedback", "")
+
+            print(f"    User response: {'Approved' if approved else 'Rejected'}")
+            if feedback:
+                print(f"    Feedback: {feedback}")
+                workflow_data["approval_feedback"] = feedback
+        except asyncio.TimeoutError:
+            print("    ❌ Timeout waiting for approval")
+            approved = False
+    else:
+        print("    ❌ No input queue available for approval")
+        approved = False
 
     # Update workflow data
     workflow_data["approved"] = approved
@@ -567,8 +898,20 @@ async def approval_gate_executor(
 
     if approved:
         print(f"    ✓ Status: Approved")
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "system",
+                "✓ PR approved - proceeding with deployment"
+            )
     else:
         print(f"    ❌ Status: Rejected - workflow will stop")
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "error",
+                "❌ PR rejected - workflow stopped"
+            )
 
     # Send message to workflow
     await ctx.send_message(workflow_data)
@@ -576,6 +919,8 @@ async def approval_gate_executor(
 
 async def _poll_pr_merge_status(
     workflow_data: dict[str, Any],
+    broadcast_chat = None,
+    workflow_id: str = None,
     poll_interval_seconds: int = 30,
     max_wait_minutes: int = 60,
 ) -> tuple[bool, str]:
@@ -584,6 +929,8 @@ async def _poll_pr_merge_status(
 
     Args:
         workflow_data: Workflow state with PR details
+        broadcast_chat: Function to broadcast chat messages
+        workflow_id: Workflow ID for broadcasting
         poll_interval_seconds: Seconds between polls (default: 30)
         max_wait_minutes: Maximum minutes to wait (default: 60)
 
@@ -628,6 +975,9 @@ async def _poll_pr_merge_status(
         poll_count += 1
         current_time = datetime.now()
 
+        # Calculate progress percentage
+        progress = min(95, 10 + (poll_count / max_polls) * 85)  # 10% to 95%
+
         try:
             # Get PR status
             pr_status = get_pull_request_status(
@@ -643,9 +993,25 @@ async def _poll_pr_merge_status(
 
             print(f"   [{current_time.strftime('%H:%M:%S')}] Poll {poll_count}/{max_polls}: Status = {status}")
 
+            # Send progress update every few polls
+            if broadcast_chat and workflow_id and poll_count % 3 == 0:
+                await broadcast_chat(
+                    workflow_id,
+                    "progress",
+                    f"⏳ Waiting for PR merge... (Status: {status})",
+                    {"progress": progress}
+                )
+
             # Check if PR is merged
             if is_completed:
                 elapsed = (current_time - start_time).total_seconds() / 60
+                if broadcast_chat and workflow_id:
+                    await broadcast_chat(
+                        workflow_id,
+                        "progress",
+                        f"✓ PR merged successfully after {elapsed:.1f} minutes",
+                        {"progress": 100}
+                    )
                 return True, f"PR merged successfully after {elapsed:.1f} minutes"
 
             # Check if PR was abandoned
@@ -686,9 +1052,30 @@ async def deployment_verification_executor(
     print("\n✓ [7/9] Deployment Verification")
     print("=" * 70)
 
+    # Get context
+    broadcast_chat = _workflow_context.get("broadcast_chat_func")
+    workflow_id = _workflow_context.get("workflow_id")
+
+    # Send step transition message
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "step_transition",
+            "Deployment Verification",
+            {"step": 7}
+        )
+
     # Check if approval was granted (this should not happen with conditional edges)
     if not workflow_data.get("approved", False):
         print("\n   ❌ PR was not approved - cannot verify deployment")
+
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "error",
+                "❌ PR was not approved - cannot verify deployment"
+            )
+
         workflow_data["pr_merged"] = False
         workflow_data["deployment_detected"] = False
         workflow_data["deployment_status"] = "skipped_no_approval"
@@ -698,8 +1085,17 @@ async def deployment_verification_executor(
         await ctx.send_message(workflow_data)
         return
 
+    # Send initial progress message
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "progress",
+            "📊 Monitoring PR merge status...",
+            {"progress": 10}
+        )
+
     # Poll for PR merge status
-    success, message = await _poll_pr_merge_status(workflow_data)
+    success, message = await _poll_pr_merge_status(workflow_data, broadcast_chat, workflow_id)
 
     # Update workflow data
     workflow_data["pr_merged"] = success
@@ -719,9 +1115,23 @@ async def deployment_verification_executor(
         print(f"\n   ✅ {message}")
         print(f"   Timestamp: {workflow_data['deployment_timestamp']}")
         print(f"   ✓ Status: Success")
+
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "system",
+                f"✓ Deployment verified: {message}"
+            )
     else:
         print(f"\n   ❌ {message}")
         print(f"   ❌ Status: Failed - workflow will stop")
+
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "error",
+                f"❌ Deployment verification failed: {message}"
+            )
 
     print()
 
@@ -977,11 +1387,34 @@ async def results_analysis_executor(
 ) -> None:
     """
     Step 8: Results Analysis
-    Queries Kusto for detector results, analyzes effectiveness, and prompts user for confirmation.
-    Uses MAF ChatAgent approval pattern for human-in-the-loop confirmation.
+    Queries Kusto for detector results, analyzes effectiveness, and prompts user for confirmation
+    via WebSocket approval request.
     """
     print("\n✓ [8/9] Results Analysis")
     print("    Initializing Results Analysis...")
+
+    # Get context
+    broadcast_chat = _workflow_context.get("broadcast_chat_func")
+    workflow_id = _workflow_context.get("workflow_id")
+    input_queue = _workflow_context.get("input_queue")
+
+    # Send step transition message
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "step_transition",
+            "Results Analysis",
+            {"step": 8}
+        )
+
+    # Send progress message
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "progress",
+            "📊 Fetching detector results from Kusto...",
+            {"progress": 30}
+        )
 
     # Fetch and analyze results from Kusto
     metrics, summary = await _fetch_and_analyze_results(workflow_data)
@@ -1003,12 +1436,78 @@ async def results_analysis_executor(
         workflow_data["error_message"] = "Deployment was not successful"
         print("\n    ❌ Skipping - deployment was not successful")
         print(f"    ❌ Status: Failed - workflow will stop")
+
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "error",
+                "❌ Deployment was not successful - skipping results analysis"
+            )
+
         await ctx.send_message(workflow_data)
         return
 
-    # Handle user confirmation using MAF pattern
-    chat_client = AzureOpenAIChatClient()
-    confirmed = await _handle_results_confirmation(workflow_data, metrics, chat_client)
+    # Send progress update
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "progress",
+            "📈 Analyzing detector effectiveness...",
+            {"progress": 70}
+        )
+
+    # Format results for approval request
+    rule_id = workflow_data.get("rule_id", "unknown")
+    detector_name = f"detector_{rule_id}"
+
+    results_details = f"""**Detector: {detector_name}**
+**Rule ID:** {rule_id}
+
+**Results Summary:**
+{summary}
+
+**Metrics:**
+- Total Events: {metrics.get('total_events', 0)}
+- Error Count: {metrics.get('error_count', 0)}
+- Error Rate: {metrics.get('error_rate', 0.0)}%
+- Unique Hosts: {metrics.get('unique_hosts', 0)}
+- Time Buckets: {metrics.get('time_buckets', 0)} (5-minute intervals)"""
+
+    # Send approval request for results confirmation
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "approval_request",
+            "Please review the detector results and confirm they look acceptable before proceeding to production.",
+            {
+                "approvalData": {
+                    "content": results_details,
+                    "contentLabel": "Detection Results",
+                    "approvalType": "results_confirmation",
+                    "allowFeedback": True
+                }
+            }
+        )
+
+    # Wait for user confirmation via input queue
+    confirmed = False
+    if input_queue:
+        print("    Waiting for user confirmation...")
+        try:
+            confirmation_response = await asyncio.wait_for(input_queue.get(), timeout=600.0)  # 10 minute timeout
+            confirmed = confirmation_response.get("approved", False)
+            feedback = confirmation_response.get("feedback", "")
+
+            print(f"    User response: {'Confirmed' if confirmed else 'Rejected'}")
+            if feedback:
+                print(f"    Feedback: {feedback}")
+                workflow_data["results_feedback"] = feedback
+        except asyncio.TimeoutError:
+            print("    ❌ Timeout waiting for confirmation")
+            confirmed = False
+    else:
+        print("    ❌ No input queue available for confirmation")
+        confirmed = False
 
     # Update workflow data
     workflow_data["results_acceptable"] = confirmed
@@ -1022,9 +1521,23 @@ async def results_analysis_executor(
     if confirmed:
         print("\n    ✅ Results confirmed by user")
         print(f"    ✓ Status: Success")
+
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "system",
+                "✓ Results confirmed - proceeding to production promotion"
+            )
     else:
         print("\n    ❌ Results not confirmed by user")
         print(f"    ❌ Status: Failed - workflow will stop")
+
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "error",
+                "❌ Results not confirmed - workflow stopped"
+            )
 
     # Send message to next executor
     await ctx.send_message(workflow_data)
@@ -1122,11 +1635,33 @@ async def production_promotion_executor(
     Uses PromotionPatternAnalyzer to follow team conventions.
     """
     print("\n✓ [9/9] Production Promotion")
+
+    # Get context
+    broadcast_chat = _workflow_context.get("broadcast_chat_func")
+    workflow_id = _workflow_context.get("workflow_id")
+
+    # Send step transition message
+    if broadcast_chat and workflow_id:
+        await broadcast_chat(
+            workflow_id,
+            "step_transition",
+            "Production Promotion",
+            {"step": 9}
+        )
+
     print("    Analyzing promotion patterns...")
 
     # Check if results were confirmed (should not happen with conditional edges)
     if not workflow_data.get("results_confirmed", False):
         print("\n    ❌ Results not confirmed - cannot promote to production")
+
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "error",
+                "❌ Results not confirmed - cannot promote to production"
+            )
+
         workflow_data["promotion_status"] = "skipped_no_confirmation"
         workflow_data["current_step"] = "production_promotion_skipped"
         workflow_data["status"] = "failed"
@@ -1139,6 +1674,14 @@ async def production_promotion_executor(
     # Check Azure DevOps configuration
     if not config.azure.azure_devops_org or not config.azure.azure_devops_project or not config.azure.azure_devops_repo:
         print("    ❌ Azure DevOps not configured - cannot create promotion PR")
+
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "error",
+                "❌ Azure DevOps not configured - cannot create promotion PR"
+            )
+
         workflow_data["promotion_status"] = "skipped_no_config"
         workflow_data["current_step"] = "production_promotion_skipped"
         workflow_data["status"] = "failed"
@@ -1147,6 +1690,15 @@ async def production_promotion_executor(
         return
 
     try:
+        # Send progress message
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "progress",
+                "📚 Analyzing historical promotion patterns...",
+                {"progress": 20}
+            )
+
         # Initialize Azure DevOps connection
         auth_mgr = get_auth_manager(use_default_credential=True)
         connection = auth_mgr.get_azure_devops_connection(config.azure.azure_devops_org)
@@ -1166,6 +1718,15 @@ async def production_promotion_executor(
 
         print(f"    Analyzed {patterns['pr_count']} promotion PRs")
 
+        # Send progress message
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "progress",
+                "⚙️ Generating promotion configuration changes...",
+                {"progress": 40}
+            )
+
         # Generate promotion changes
         print("    Generating promotion configuration changes...")
         changes = _generate_promotion_changes(workflow_data, patterns)
@@ -1176,6 +1737,15 @@ async def production_promotion_executor(
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         branch_name = f"detector/production-{rule_id}-{timestamp}"
+
+        # Send progress message
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "progress",
+                f"🌿 Creating promotion branch: {branch_name}...",
+                {"progress": 60}
+            )
 
         print(f"    Creating branch: {branch_name}")
 
@@ -1194,6 +1764,15 @@ async def production_promotion_executor(
         commit_message = f"Promote {detector_name} to production\n\n" \
                         f"Enable {rule_id} detector for customer-facing use.\n" \
                         f"Validated with {workflow_data.get('events_detected', 0)} events detected."
+
+        # Send progress message
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "progress",
+                "💾 Committing promotion changes...",
+                {"progress": 75}
+            )
 
         print("    Committing promotion changes...")
         commit_and_push_files(
@@ -1239,6 +1818,15 @@ async def production_promotion_executor(
 
         pr_description = "\n".join(description_sections)
 
+        # Send progress message
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "progress",
+                "📝 Creating production promotion PR...",
+                {"progress": 90}
+            )
+
         # Create PR
         print("    Creating promotion PR...")
         pr_response = create_pull_request(
@@ -1279,8 +1867,42 @@ async def production_promotion_executor(
         print(f"   ✓ Status: Success")
         print()
 
+        # Send completion message
+        if broadcast_chat and workflow_id:
+            promotion_summary = f"""**🎉 Production Promotion Complete!**
+
+**PR #{promotion_pr_id}: {pr_title}**
+
+**Branch:** {branch_name}
+**URL:** {promotion_pr_url}
+
+**Files Changed:** {len(changes)}
+{chr(10).join(f"- `{fp}`" for fp in changes.keys())}
+
+The detector is ready for production deployment after this PR is merged."""
+
+            await broadcast_chat(
+                workflow_id,
+                "system",
+                f"✓ Production promotion PR created: #{promotion_pr_id}"
+            )
+
+            await broadcast_chat(
+                workflow_id,
+                "agent",
+                promotion_summary
+            )
+
     except Exception as e:
         print(f"\n    ❌ Error creating promotion PR: {e}")
+
+        if broadcast_chat and workflow_id:
+            await broadcast_chat(
+                workflow_id,
+                "error",
+                f"❌ Error creating promotion PR: {str(e)}"
+            )
+
         workflow_data["promotion_status"] = "failed"
         workflow_data["promotion_error"] = str(e)
         workflow_data["current_step"] = "production_promotion_failed"
@@ -1291,7 +1913,12 @@ async def production_promotion_executor(
     await ctx.yield_output(workflow_data)
 
 
-async def build_detector_workflow(workflow_id: str = None, input_queue: asyncio.Queue = None, broadcast_func = None):
+async def build_detector_workflow(
+    workflow_id: str = None,
+    input_queue: asyncio.Queue = None,
+    broadcast_func = None,
+    broadcast_chat_func = None
+):
     """
     Build the detector development workflow using MAF WorkflowBuilder.
 
@@ -1304,7 +1931,8 @@ async def build_detector_workflow(workflow_id: str = None, input_queue: asyncio.
     Args:
         workflow_id: Workflow identifier for conversation context
         input_queue: AsyncIO queue for receiving user input
-        broadcast_func: Function to broadcast messages via WebSocket
+        broadcast_func: Function to broadcast workflow updates via WebSocket
+        broadcast_chat_func: Function to broadcast chat messages via WebSocket
     """
     # Store context for agents to access
     global _workflow_context
@@ -1312,6 +1940,7 @@ async def build_detector_workflow(workflow_id: str = None, input_queue: asyncio.
         "workflow_id": workflow_id,
         "input_queue": input_queue,
         "broadcast_func": broadcast_func,
+        "broadcast_chat_func": broadcast_chat_func,
     }
     workflow = (
         WorkflowBuilder()

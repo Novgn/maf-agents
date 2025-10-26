@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": {
+      "value": "prod"
+    },
+    "location": {
+      "value": "eastus"
+    },
+    "azureDevOpsOrgUrl": {
+      "value": ""
+    },
+    "azureDevOpsProject": {
+      "value": ""
+    },
+    "azureDevOpsRepo": {
+      "value": ""
+    },
+    "tags": {
+      "value": {
+        "Project": "MAF-Agents",
+        "Environment": "Production",
+        "ManagedBy": "Bicep",
+        "CostCenter": "Production",
+        "Owner": "PlatformTeam",
+        "Criticality": "High",
+        "DataClassification": "Confidential"
+      }
+    }
+  }
+}

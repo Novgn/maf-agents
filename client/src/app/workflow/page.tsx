@@ -5,9 +5,6 @@ import { useSearchParams } from "next/navigation";
 import { useWorkflow } from "@/hooks/use-workflow";
 import { ChatInterface } from "@/components/workflow/chat-interface";
 import { ChatMessage } from "@/lib/types";
-import { ETWInputForm } from "@/components/workflow/etw-input-form";
-import { ApprovalDialog } from "@/components/workflow/approval-dialog";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { loadWorkflowSession, saveWorkflowSession } from "@/lib/session-storage";
 
@@ -28,7 +25,7 @@ function WorkflowPageContent() {
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
-      role: "assistant",
+      type: "agent",
       content: "Hello! I'm here to help you create a new ETW detector. Let's start by understanding what you want to detect. What security event or behavior are you looking to monitor?",
       timestamp: new Date().toISOString(),
     },
@@ -67,13 +64,29 @@ function WorkflowPageContent() {
     }
   }, [workflowId, chatMessages, hasChatRestored]);
 
-  // Handle WebSocket messages containing agent chat responses
+  // Handle WebSocket messages containing chat responses
   useEffect(() => {
     if (!latestMessage || latestMessage === lastProcessedMessageRef.current) return;
 
-    // Check if message contains agent chat response
-    // The backend might send: { type: "agent_message", message: "...", ... }
-    // or { data: { message: "..." }, ... }
+    // Handle new chat_message format from backend
+    if (latestMessage.type === "chat_message") {
+      lastProcessedMessageRef.current = latestMessage;
+
+      const chatMessage: ChatMessage = {
+        type: (latestMessage.message_type as ChatMessage["type"]) || "agent",
+        content: (latestMessage.message as string) || "",
+        timestamp: (latestMessage.timestamp as string) || new Date().toISOString(),
+        metadata: (latestMessage.metadata as ChatMessage["metadata"]) || {},
+      };
+
+      // Legitimate use case: subscribing to external WebSocket state and updating React state
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setChatMessages((prev) => [...prev, chatMessage]);
+      setIsLoadingResponse(false);
+      return;
+    }
+
+    // Legacy format: agent_message
     const messageContent =
       (latestMessage.message && typeof latestMessage.message === "string"
         ? latestMessage.message
@@ -92,7 +105,7 @@ function WorkflowPageContent() {
 
       // Add agent response to chat
       const assistantMessage: ChatMessage = {
-        role: "assistant",
+        type: "agent",
         content: messageContent as string,
         timestamp: new Date().toISOString(),
         metadata: {
@@ -107,39 +120,10 @@ function WorkflowPageContent() {
     }
   }, [latestMessage, currentStep]);
 
-  // Approval data from backend WebSocket
-  const [approvalData, setApprovalData] = useState<{
-    content: string;
-    label: string;
-  } | null>(null);
-
-  // Handle WebSocket messages for approval steps
-  useEffect(() => {
-    if (!latestMessage) return;
-
-    // Check for approval_required messages from backend
-    if (latestMessage.type === "approval_required" && latestMessage.data) {
-      const data = latestMessage.data as Record<string, unknown>;
-      const content = data.content && typeof data.content === "string" ? data.content : "";
-      const label =
-        data.label && typeof data.label === "string"
-          ? data.label
-          : currentStep === 5
-          ? "Generated Pull Request"
-          : currentStep === 7
-          ? "Detection Results"
-          : "Content for Review";
-
-      // Legitimate use case: subscribing to external WebSocket state and updating React state
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setApprovalData({ content, label });
-    }
-  }, [latestMessage, currentStep]);
-
   const handleSendMessage = async (message: string) => {
     // Add user message to chat
     const userMessage: ChatMessage = {
-      role: "user",
+      type: "user",
       content: message,
       timestamp: new Date().toISOString(),
     };
@@ -161,215 +145,29 @@ function WorkflowPageContent() {
     }
   };
 
-  const handleETWSubmit = async (data: { providerGuid: string; ruleId: string }) => {
+  const handleFormSubmit = async (data: Record<string, string>) => {
     try {
-      await submitInput("etw_input", data);
+      console.log("Form submitted:", data);
+
+      // Determine input type based on current step
+      // Step 2 = ETW input, but we can also infer from data keys
+      if ("providerGuid" in data && "ruleId" in data) {
+        await submitInput("etw_input", data);
+      } else {
+        // Generic form submission
+        await submitInput("form_data", data);
+      }
     } catch (err) {
-      console.error("Failed to submit ETW input:", err);
+      console.error("Failed to submit form:", err);
     }
   };
 
-  const handleApprove = async (feedback?: string) => {
+  const handleApproval = async (approved: boolean, feedback?: string) => {
     try {
-      await submitInput("approval", { approved: true, feedback });
-      setApprovalData(null);
+      console.log("Approval:", approved, feedback);
+      await submitInput("approval", { approved, feedback: feedback || "" });
     } catch (err) {
       console.error("Failed to submit approval:", err);
-    }
-  };
-
-  const handleReject = async (reason: string) => {
-    try {
-      await submitInput("approval", { approved: false, reason });
-      setApprovalData(null);
-    } catch (err) {
-      console.error("Failed to submit rejection:", err);
-    }
-  };
-
-  const renderStepContent = () => {
-    if (!workflowId) return null;
-
-    const currentStepInfo = steps.find((s) => s.number === currentStep);
-    const stepStatus = currentStepInfo?.status || "pending";
-
-    // If current step has failed, show error
-    if (stepStatus === "failed" && error) {
-      return (
-        <Card className="border-red-200 bg-red-50">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-red-600" />
-              <CardTitle className="text-red-900">Step Failed</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <p className="text-red-800 mb-4">{error}</p>
-            <p className="text-sm text-red-700">
-              Step {currentStep}: {currentStepInfo?.title}
-            </p>
-          </CardContent>
-        </Card>
-      );
-    }
-
-    switch (currentStep) {
-      case 1: // Detector Triage
-        return (
-          <ChatInterface
-            title="Detector Requirements Gathering"
-            description="Chat with our AI agent to define your detector requirements"
-            messages={chatMessages}
-            onSendMessage={handleSendMessage}
-            isLoading={isLoadingResponse}
-            placeholder="Describe what you want to detect..."
-            currentStep={currentStep}
-          />
-        );
-
-      case 2: // ETW Input Collection
-        return (
-          <ETWInputForm
-            onSubmit={handleETWSubmit}
-            isLoading={stepStatus === "in_progress"}
-          />
-        );
-
-      case 3: // Schema Discovery (Processing)
-        return (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-4" />
-              <p className="font-semibold text-lg">Discovering Schema</p>
-              <p className="text-muted-foreground mt-2">
-                Querying Kusto for ETW event schema...
-              </p>
-            </CardContent>
-          </Card>
-        );
-
-      case 4: // Code Generation (Processing)
-        return (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-4" />
-              <p className="font-semibold text-lg">Generating Detector Code</p>
-              <p className="text-muted-foreground mt-2">
-                AI is generating detector implementation...
-              </p>
-            </CardContent>
-          </Card>
-        );
-
-      case 5: // PR Creation & Review (Approval)
-        if (approvalData) {
-          return (
-            <ApprovalDialog
-              title="Code Review Required"
-              description="Review the generated detector code and pull request before proceeding"
-              content={approvalData.content}
-              contentLabel={approvalData.label}
-              onApprove={handleApprove}
-              onReject={handleReject}
-              isLoading={stepStatus === "in_progress"}
-            />
-          );
-        }
-        return (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-4" />
-              <p className="text-muted-foreground">Creating pull request...</p>
-            </CardContent>
-          </Card>
-        );
-
-      case 6: // Deployment Verification (Processing)
-        return (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-4" />
-              <p className="font-semibold text-lg">Verifying Deployment</p>
-              <p className="text-muted-foreground mt-2">
-                Monitoring deployment and initial execution...
-              </p>
-            </CardContent>
-          </Card>
-        );
-
-      case 7: // Results Analysis (Approval)
-        if (approvalData) {
-          return (
-            <ApprovalDialog
-              title="Detection Results Confirmation"
-              description="Review the detection results and confirm they look correct"
-              content={approvalData.content}
-              contentLabel={approvalData.label}
-              onApprove={handleApprove}
-              onReject={handleReject}
-              isLoading={stepStatus === "in_progress"}
-            />
-          );
-        }
-        return (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-4" />
-              <p className="text-muted-foreground">Analyzing detection results...</p>
-            </CardContent>
-          </Card>
-        );
-
-      case 8: // Results Confirmation (Processing - in the new numbering this is actually step 8)
-        return (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-4" />
-              <p className="font-semibold text-lg">Preparing Final Report</p>
-              <p className="text-muted-foreground mt-2">
-                Compiling deployment summary and metrics...
-              </p>
-            </CardContent>
-          </Card>
-        );
-
-      case 9: // Production Promotion (Approval)
-        if (approvalData) {
-          return (
-            <ApprovalDialog
-              title="Production Promotion Approval"
-              description="Review the deployment summary and approve promotion to production"
-              content={approvalData.content}
-              contentLabel={approvalData.label}
-              onApprove={handleApprove}
-              onReject={handleReject}
-              isLoading={stepStatus === "in_progress"}
-              allowFeedback={false}
-            />
-          );
-        }
-        return (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-4" />
-              <p className="text-muted-foreground">Preparing promotion details...</p>
-            </CardContent>
-          </Card>
-        );
-
-      default:
-        // Fallback for any unexpected step
-        return (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-4" />
-              <p className="text-muted-foreground">Processing step {currentStep}...</p>
-              <p className="text-sm text-gray-500 mt-2">
-                {currentStepInfo?.title || "In progress"}
-              </p>
-            </CardContent>
-          </Card>
-        );
     }
   };
 
@@ -391,49 +189,51 @@ function WorkflowPageContent() {
         </div>
       )}
 
-      {/* Main Content - Always show chat interface for smooth flow */}
-      {workflowId && currentStep > 0 ? (
-        renderStepContent()
-      ) : (
-        <ChatInterface
-          title="Let's get started"
-          description="Describe what you want to detect and I'll guide you through the process"
-          messages={chatMessages}
-          onSendMessage={async (message) => {
-            // Auto-create workflow on first message if not exists
-            if (!workflowId) {
-              const newWorkflowId = await createWorkflow();
-              if (newWorkflowId) {
-                // Add user message to chat
-                const userMessage: ChatMessage = {
-                  role: "user",
-                  content: message,
-                  timestamp: new Date().toISOString(),
-                };
-                setChatMessages((prev) => [...prev, userMessage]);
-                setIsLoadingResponse(true);
+      {/* Main Content - Unified ChatInterface for entire workflow */}
+      <ChatInterface
+        title={workflowId ? "Detector Development" : "Let's get started"}
+        description={
+          workflowId
+            ? "Follow the workflow steps to create your detector"
+            : "Describe what you want to detect and I'll guide you through the process"
+        }
+        messages={chatMessages}
+        onSendMessage={async (message) => {
+          // Auto-create workflow on first message if not exists
+          if (!workflowId) {
+            const newWorkflowId = await createWorkflow();
+            if (newWorkflowId) {
+              // Add user message to chat
+              const userMessage: ChatMessage = {
+                type: "user",
+                content: message,
+                timestamp: new Date().toISOString(),
+              };
+              setChatMessages((prev) => [...prev, userMessage]);
+              setIsLoadingResponse(true);
 
-                try {
-                  // Submit to backend using the just-created workflow ID
-                  await submitInput("triage_message", { message }, newWorkflowId);
-                  setTimeout(() => {
-                    setIsLoadingResponse(false);
-                  }, 30000);
-                } catch (err) {
+              try {
+                // Submit to backend using the just-created workflow ID
+                await submitInput("triage_message", { message }, newWorkflowId);
+                setTimeout(() => {
                   setIsLoadingResponse(false);
-                  console.error("Failed to send message:", err);
-                }
+                }, 30000);
+              } catch (err) {
+                setIsLoadingResponse(false);
+                console.error("Failed to send message:", err);
               }
-            } else {
-              // Workflow already exists, use normal flow
-              await handleSendMessage(message);
             }
-          }}
-          isLoading={isLoadingResponse}
-          placeholder="Tell me what you want to detect..."
-          currentStep={currentStep}
-        />
-      )}
+          } else {
+            // Workflow already exists, use normal flow
+            await handleSendMessage(message);
+          }
+        }}
+        isLoading={isLoadingResponse}
+        placeholder={currentStep === 1 ? "Describe what you want to detect..." : "Type your message..."}
+        currentStep={currentStep}
+        onFormSubmit={handleFormSubmit}
+        onApproval={handleApproval}
+      />
     </div>
   );
 }

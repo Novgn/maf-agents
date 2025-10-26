@@ -131,8 +131,13 @@ async def run_workflow_async(workflow_id: str, input_data: Dict[str, Any]):
         conversation_queues[workflow_id] = asyncio.Queue()
         print(f"✓ Created conversation queue for workflow {workflow_id[:8]}")
 
-        # Build workflow with conversation support
-        workflow = await build_detector_workflow(workflow_id, conversation_queues[workflow_id], broadcast_workflow_update)
+        # Build workflow with conversation support (pass both broadcast functions)
+        workflow = await build_detector_workflow(
+            workflow_id,
+            conversation_queues[workflow_id],
+            broadcast_workflow_update,
+            broadcast_chat_message
+        )
 
         # Initialize workflow state
         workflows[workflow_id] = {
@@ -230,6 +235,57 @@ async def run_workflow_async(workflow_id: str, input_data: Dict[str, Any]):
         if workflow_id in conversation_queues:
             del conversation_queues[workflow_id]
             print(f"✓ Cleaned up conversation queue for workflow {workflow_id[:8]}")
+
+
+async def broadcast_chat_message(
+    workflow_id: str,
+    message_type: str,
+    content: str,
+    metadata: Dict[str, Any] | None = None
+):
+    """
+    Broadcast a chat message to the workflow's WebSocket connection.
+
+    This sends rich message types that render as different UI components in the frontend.
+
+    Args:
+        workflow_id: Workflow identifier
+        message_type: Type of message (agent, system, step_transition, form_request, etc.)
+        content: Message content (markdown supported)
+        metadata: Additional metadata (formFields, approvalData, progress, etc.)
+    """
+    if workflow_id in websocket_connections:
+        ws = websocket_connections[workflow_id]
+
+        message_data = {
+            "type": "chat_message",
+            "message_type": message_type,
+            "message": content,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "metadata": metadata or {}
+        }
+
+        # Save to session history
+        if session_store:
+            try:
+                session = await session_store.get_session(workflow_id, "anonymous")
+                if session:
+                    session.conversation_history.append({
+                        "type": message_type,
+                        "content": content,
+                        "timestamp": message_data["timestamp"],
+                        "metadata": metadata or {}
+                    })
+                    await session_store.save_session(session)
+            except Exception as e:
+                print(f"⚠️  Failed to save chat message to session: {e}")
+
+        try:
+            await ws.send_json(message_data)
+        except Exception as e:
+            print(f"Error broadcasting chat message to {workflow_id}: {e}")
+            if workflow_id in websocket_connections:
+                del websocket_connections[workflow_id]
 
 
 async def broadcast_workflow_update(workflow_id: str, extra_data: Dict[str, Any] | None = None):
@@ -445,6 +501,31 @@ async def submit_workflow_input(workflow_id: str, request: UserInputRequest):
                         print(f"✓ Saved user message to session history")
                 except Exception as e:
                     print(f"⚠️  Failed to save conversation history: {e}")
+        else:
+            print(f"⚠️  No conversation queue for workflow {workflow_id[:8]}")
+
+    # Handle ETW input - put full data in conversation queue
+    elif request.input_type == "etw_input":
+        if workflow_id in conversation_queues:
+            await conversation_queues[workflow_id].put(request.data)
+            print(f"📨 Queued ETW input for workflow {workflow_id[:8]}: providerGuid={request.data.get('providerGuid', 'N/A')}, ruleId={request.data.get('ruleId', 'N/A')}")
+        else:
+            print(f"⚠️  No conversation queue for workflow {workflow_id[:8]}")
+
+    # Handle approval - put approval data in conversation queue
+    elif request.input_type == "approval":
+        if workflow_id in conversation_queues:
+            await conversation_queues[workflow_id].put(request.data)
+            approved = request.data.get("approved", False)
+            print(f"📨 Queued approval for workflow {workflow_id[:8]}: approved={approved}")
+        else:
+            print(f"⚠️  No conversation queue for workflow {workflow_id[:8]}")
+
+    # Handle generic form data
+    elif request.input_type == "form_data":
+        if workflow_id in conversation_queues:
+            await conversation_queues[workflow_id].put(request.data)
+            print(f"📨 Queued form data for workflow {workflow_id[:8]}: {request.data}")
         else:
             print(f"⚠️  No conversation queue for workflow {workflow_id[:8]}")
 

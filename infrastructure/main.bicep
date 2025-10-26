@@ -69,8 +69,8 @@ var environmentConfig = {
   dev: {
     appServicePlan: {
       sku: {
-        name: 'F1'
-        tier: 'Free'
+        name: 'S1'
+        tier: 'Standard'
         capacity: 1
       }
     }

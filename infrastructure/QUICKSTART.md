@@ -41,7 +41,7 @@ cd infrastructure
 az deployment group create \
   --resource-group rg-maf-agents-dev \
   --template-file main.bicep \
-  --parameters @parameters/dev.bicepparam \
+  --parameters @parameters/dev.parameters.json \
   --name maf-agents-dev-$(date +%Y%m%d-%H%M%S)
 ```
 
@@ -197,7 +197,7 @@ az group delete --name rg-maf-agents-dev --yes --no-wait
    - Set up alerts for errors and performance
 
 4. **Deploy to Production**:
-   - Use `parameters/prod.bicepparam`
+   - Use `parameters/prod.parameters.json`
    - Create separate resource group (`rg-maf-agents-prod`)
    - Configure production settings (IP restrictions, autoscaling, etc.)
 

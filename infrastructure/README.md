@@ -87,19 +87,19 @@ cd infrastructure
 az deployment group validate \
   --resource-group rg-maf-agents-dev \
   --template-file main.bicep \
-  --parameters @parameters/dev.bicepparam
+  --parameters @parameters/dev.parameters.json
 
 # 3. Preview changes (What-If)
 az deployment group what-if \
   --resource-group rg-maf-agents-dev \
   --template-file main.bicep \
-  --parameters @parameters/dev.bicepparam
+  --parameters @parameters/dev.parameters.json
 
 # 4. Deploy
 az deployment group create \
   --resource-group rg-maf-agents-dev \
   --template-file main.bicep \
-  --parameters @parameters/dev.bicepparam \
+  --parameters @parameters/dev.parameters.json \
   --name maf-agents-deployment-$(date +%Y%m%d-%H%M%S)
 ```
 
@@ -111,7 +111,7 @@ For production, use the prod parameter file:
 az deployment group create \
   --resource-group rg-maf-agents-prod \
   --template-file main.bicep \
-  --parameters @parameters/prod.bicepparam \
+  --parameters @parameters/prod.parameters.json \
   --name maf-agents-prod-$(date +%Y%m%d-%H%M%S)
 ```
 
@@ -276,12 +276,22 @@ var environmentConfig = {
 
 ### Add Azure DevOps Integration
 
-Update the parameter files (`parameters/dev.bicepparam`):
+Update the parameter files (`parameters/dev.parameters.json`):
 
-```bicep
-param azureDevOpsOrgUrl = 'https://dev.azure.com/your-org'
-param azureDevOpsProject = 'YourProject'
-param azureDevOpsRepo = 'maf-agents'
+```json
+{
+  "parameters": {
+    "azureDevOpsOrgUrl": {
+      "value": "https://dev.azure.com/your-org"
+    },
+    "azureDevOpsProject": {
+      "value": "YourProject"
+    },
+    "azureDevOpsRepo": {
+      "value": "maf-agents"
+    }
+  }
+}
 ```
 
 ### Enable IP Restrictions
@@ -451,7 +461,7 @@ jobs:
           az deployment group create \
             --resource-group rg-maf-agents-prod \
             --template-file infrastructure/main.bicep \
-            --parameters @infrastructure/parameters/prod.bicepparam
+            --parameters @infrastructure/parameters/prod.parameters.json
 ```
 
 ## References

@@ -7,8 +7,8 @@ conversation and requirement gathering.
 """
 
 import asyncio
-from typing import Callable, Any
-from agent_framework import ChatAgent, ChatMessage
+from typing import Callable, Optional
+from agent_framework import ChatAgent
 from agent_framework.azure import AzureOpenAIChatClient
 
 from shared.models import DetectorTriageData
@@ -23,7 +23,7 @@ class DetectorTriageAgent:
     implementation details.
     """
 
-    def __init__(self, input_queue: asyncio.Queue = None, broadcast_func: Callable = None, workflow_id: str = None):
+    def __init__(self, input_queue: Optional[asyncio.Queue] = None, broadcast_func: Optional[Callable] = None, workflow_id: Optional[str] = None):
         """
         Initialize the Detector Triage Agent using Azure OpenAI.
 
@@ -53,15 +53,21 @@ Your role is to have a natural conversation to understand:
    - Frequency (How often might this trigger?)
    - False positive tolerance
 
-Ask clarifying questions to gather complete requirements. Be conversational and helpful.
-
-Once you have enough information to create a clear detector specification, summarize what you've learned and confirm with the user.
+**IMPORTANT INSTRUCTIONS:**
+- Be efficient and don't over-ask. If the user provides a clear use case or approves an example, you have enough to proceed.
+- When the user says things like "that works", "sounds good", "yes", "go with that", "no that works", or similar affirmations, recognize this means they approve and you should respond with "READY_TO_PROCEED" to move forward.
+- If you provide an example and the user affirms it (even with phrases like "no that works" meaning "yes, that works"), immediately acknowledge their approval and say "READY_TO_PROCEED" in your response.
+- Don't keep asking questions if you already have a concrete detector idea approved by the user.
+- Recognize context: "No that works" after an example means "Yes, use that example" not "there was a mix-up"
 
 Examples of good detector ideas:
 - "Detect when PowerShell is executed with suspicious command-line arguments"
 - "Alert on failed authentication attempts from the same user exceeding threshold"
 - "Monitor for registry modifications to Windows Defender settings"
 - "Detect unusual process creation chains (e.g., Office spawning cmd.exe)"
+- "Detect ransomware-like behavior with mass file encryption"
+
+When you have enough information OR the user approves an example, include "READY_TO_PROCEED" in your response to signal completion.
 """
         )
 
@@ -82,6 +88,10 @@ Examples of good detector ideas:
             ValueError: If requirements gathering fails or is incomplete
         """
         print("\n✓ Starting conversational triage with WebSocket support")
+
+        # Validate required dependencies
+        if self.input_queue is None:
+            raise ValueError("input_queue is required for gather_requirements operation")
 
         triage_prompt = "Hello! I'm here to help you create a new ETW detector. Tell me - what security concern or system behavior would you like to detect?"
 
@@ -120,8 +130,15 @@ Examples of good detector ideas:
             user_input = user_input.strip()
             conversation_history.append({"role": "user", "content": user_input})
 
-            # Check if user wants to proceed or is done
-            if user_input.lower() in ['done', 'proceed', 'yes', 'ready', 'continue']:
+            # Check if user wants to proceed or is done (expanded keyword list)
+            proceed_keywords = ['done', 'proceed', 'yes', 'ready', 'continue', 'go ahead', 'lets go', "let's go"]
+            affirmative_phrases = ['that works', 'sounds good', 'looks good', 'perfect', 'great', 'go with that', 'use that', 'no that works']
+
+            user_lower = user_input.lower().strip()
+            is_explicit_proceed = user_lower in proceed_keywords
+            is_affirmative = any(phrase in user_lower for phrase in affirmative_phrases)
+
+            if is_explicit_proceed or is_affirmative:
                 # Ask agent to summarize - agent maintains conversation context internally
                 summary_prompt = "Based on our conversation, please provide a concise summary of the detector we're creating. Include: 1) What we're detecting, 2) Why it's important, 3) Expected trigger conditions, 4) Any technical details mentioned."
                 conversation_history.append({"role": "user", "content": summary_prompt})
@@ -153,13 +170,40 @@ Examples of good detector ideas:
                 print(f"\n🤖 Agent: {agent_message}\n")
                 conversation_history.append({"role": "assistant", "content": agent_message})
 
-                # Broadcast agent response
-                if self.broadcast_func and self.workflow_id:
-                    await self.broadcast_func(self.workflow_id, {
-                        "type": "agent_message",
-                        "message": agent_message,
-                        "step_number": 1,
-                    })
+                # Check if agent signaled readiness with READY_TO_PROCEED
+                if "READY_TO_PROCEED" in agent_message:
+                    print("✓ Agent detected sufficient information, proceeding to summary...")
+
+                    # Ask agent to summarize
+                    summary_prompt = "Based on our conversation, please provide a concise summary of the detector we're creating. Include: 1) What we're detecting, 2) Why it's important, 3) Expected trigger conditions, 4) Any technical details mentioned."
+                    conversation_history.append({"role": "user", "content": summary_prompt})
+
+                    summary_response = await self.agent.run(summary_prompt)
+                    detector_summary = summary_response.text
+                    conversation_history.append({"role": "assistant", "content": detector_summary})
+
+                    print(f"\n🤖 Agent Summary:")
+                    print("="*70)
+                    print(f"{detector_summary}")
+                    print("="*70)
+
+                    # Broadcast summary
+                    if self.broadcast_func and self.workflow_id:
+                        await self.broadcast_func(self.workflow_id, {
+                            "type": "agent_message",
+                            "message": detector_summary,
+                            "step_number": 1,
+                        })
+
+                    requirements_complete = True
+                else:
+                    # Broadcast agent response
+                    if self.broadcast_func and self.workflow_id:
+                        await self.broadcast_func(self.workflow_id, {
+                            "type": "agent_message",
+                            "message": agent_message,
+                            "step_number": 1,
+                        })
 
             turn_count += 1
 
@@ -181,9 +225,9 @@ Examples of good detector ideas:
 
 
 async def create_detector_triage_agent(
-    input_queue: asyncio.Queue = None,
-    broadcast_func: Callable = None,
-    workflow_id: str = None
+    input_queue: Optional[asyncio.Queue] = None,
+    broadcast_func: Optional[Callable] = None,
+    workflow_id: Optional[str] = None
 ) -> DetectorTriageAgent:
     """
     Factory function to create a Detector Triage Agent.
